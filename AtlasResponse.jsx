@@ -43,7 +43,7 @@ function Nav({ page, go }) {
     <nav ref={ref} className="site-nav">
       <button className="nav-logo" onClick={() => go("home")}><LogoSVG /><span>ATLAS <em>RESPONSE</em></span></button>
       <ul className="nav-links">
-        {[["home","Home"],["fleet","Fleet"],["investors","Investors"],["why-florida","Why Florida"],["partners","Partners"],["contact","Contact"]].map(([k,l]) => (
+        {[["home","Home"],["fleet","Fleet"],["about","About"],["operations","Operations"],["for-hospitals","For Hospitals"],["investors","Investors"],["why-florida","Why Florida"],["phase-a","Phase A"],["partners","Partners"],["contact","Contact"]].map(([k,l]) => (
           <li key={k}><button className={`nav-btn${page===k?" active":""}`} onClick={() => go(k)}>{l}</button></li>
         ))}
       </ul>
@@ -57,7 +57,7 @@ function Footer({ go }) {
     <footer className="site-footer">
       <div className="footer-logo">ATLAS <em>RESPONSE</em></div>
       <div className="footer-links">
-        {[["home","Home"],["fleet","Fleet"],["investors","Investors"],["briefing","Briefing"],["why-florida","Why Florida"],["partners","Partners"],["contact","Contact"],["request-briefing","Request Briefing"]].map(([k,l]) => (
+        {[["home","Home"],["fleet","Fleet"],["about","About"],["operations","Operations"],["for-hospitals","For Hospitals"],["investors","Investors"],["briefing","Briefing"],["why-florida","Why Florida"],["phase-a","Phase A"],["partners","Partners"],["contact","Contact"],["legal","Legal"],["request-briefing","Request Briefing"]].map(([k,l]) => (
           <button key={k} className="footer-btn" onClick={() => go(k)}>{l}</button>
         ))}
       </div>
@@ -1286,8 +1286,54 @@ function ContactPage({ go }) {
 }
 
 // ── REQUEST BRIEFING ──────────────────────────────────────────────────────────
-function RequestBriefingPage() {
+function RequestBriefingPage({ go }) {
+  const [form, setForm] = useState({firstName:"", lastName:"", email:"", company:"", role:"", investmentFocus:""});
   const [sent, setSent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const HUBSPOT_PORTAL_ID = "27341170";
+  const HUBSPOT_FORM_ID = "68ba60bf-e90d-4e2a-9fb2-35f2d84d4ecc";
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setForm(prev => ({...prev, [name]: value}));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `https://api.hsforms.com/submissions/v3/integration/submit/${HUBSPOT_PORTAL_ID}/${HUBSPOT_FORM_ID}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: [
+              { name: "firstname", value: form.firstName },
+              { name: "lastname", value: form.lastName },
+              { name: "email", value: form.email },
+              { name: "company", value: form.company },
+              { name: "jobtitle", value: form.role },
+              { name: "investment_focus", value: form.investmentFocus },
+            ],
+            context: {
+              pageUri: window.location.href,
+              pageName: "Atlas Response — Request Briefing",
+            },
+          }),
+        }
+      );
+      if (!res.ok) throw new Error("Submission failed");
+      setSent(true);
+      setTimeout(() => go && go("access-granted"), 1500);
+    } catch (err) {
+      setError("Something went wrong. Please try again or email invest@atlasresponse.com");
+      setSubmitting(false);
+    }
+  };
   return (
     <div style={{minHeight:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr",position:"relative",paddingTop:72}}>
       <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,backgroundImage:"linear-gradient(rgba(78,174,232,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(78,174,232,.03) 1px,transparent 1px)",backgroundSize:"50px 50px"}}/>
@@ -1329,30 +1375,23 @@ function RequestBriefingPage() {
               <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--white)",lineHeight:1.1,marginBottom:8}}>Request the Full<br/>Mission Briefing</div>
               <div style={{fontFamily:"'Courier New',monospace",fontSize:11,color:"var(--muted)"}}>Complete the form below. Your briefing will be delivered to your inbox within minutes.</div>
             </div>
-            <form onSubmit={e => { e.preventDefault(); setSent(true); }}>
+            <form onSubmit={handleSubmit}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-                {[{l:"Full Name",t:"text",p:"Jane Smith"},{l:"Company / Fund",t:"text",p:"Weatherford Capital"}].map((f,i) => (
-                  <div key={i} className="form-field"><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>{f.l} *</label><input type={f.t} placeholder={f.p} required style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
-                ))}
+                <div className="form-field"><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>First Name *</label><input type="text" name="firstName" placeholder="Jane" value={form.firstName} onChange={handleInputChange} required style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
+                <div className="form-field"><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Last Name *</label><input type="text" name="lastName" placeholder="Smith" value={form.lastName} onChange={handleInputChange} required style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
               </div>
-              {[{l:"Email Address",t:"email",p:"jane@example.com"},{l:"Phone Number",t:"tel",p:"+1 (555) 000-0000"}].map((f,i) => (
-                <div key={i} className="form-field" style={{marginBottom:16}}><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>{f.l}{i===0?" *":""}</label><input type={f.t} placeholder={f.p} required={i===0} style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
-              ))}
-              <div className="form-field" style={{marginBottom:16}}>
-                <label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Investor Type *</label>
-                <select required defaultValue="" style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",appearance:"none",cursor:"pointer"}}>
-                  <option value="" disabled>Select your category</option>
-                  {["Angel Investor","Family Office","Institutional / VC","Corporate / Strategic","Private Equity","Government / Defense Fund","Other"].map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
+              <div className="form-field" style={{marginBottom:16}}><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Email Address *</label><input type="email" name="email" placeholder="jane@example.com" value={form.email} onChange={handleInputChange} required style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
+              <div className="form-field" style={{marginBottom:16}}><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Company / Fund</label><input type="text" name="company" placeholder="Weatherford Capital" value={form.company} onChange={handleInputChange} style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
+              <div className="form-field" style={{marginBottom:16}}><label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Role / Title</label><input type="text" name="role" placeholder="Managing Partner" value={form.role} onChange={handleInputChange} style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",transition:"border-color .2s"}} onFocus={e=>e.target.style.borderColor="rgba(232,148,58,.5)"} onBlur={e=>e.target.style.borderColor="var(--rim)"}/></div>
               <div className="form-field" style={{marginBottom:20}}>
-                <label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>How Did You Hear About Atlas?</label>
-                <select defaultValue="" style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",appearance:"none",cursor:"pointer"}}>
-                  <option value="" disabled>Select a source</option>
-                  {["Direct outreach from Atlas","Referral / Introduction","LinkedIn","Industry event or conference","Website / Online search","News or press coverage","Other"].map(o => <option key={o}>{o}</option>)}
+                <label style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,textTransform:"uppercase",color:"var(--dim)"}}>Investment Focus *</label>
+                <select name="investmentFocus" value={form.investmentFocus} onChange={handleInputChange} required style={{background:"var(--steel)",border:"1px solid var(--rim)",color:"var(--white)",fontFamily:"'Courier New',monospace",fontSize:13,padding:"13px 16px",outline:"none",width:"100%",appearance:"none",cursor:"pointer"}}>
+                  <option value="">Select focus area</option>
+                  {["Aviation","Healthcare","Infrastructure","Defense/Aerospace","Other"].map(o => <option key={o}>{o}</option>)}
                 </select>
               </div>
-              <button type="submit" style={{width:"100%",background:"var(--accent)",color:"var(--navy)",border:"none",fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:4,textTransform:"uppercase",padding:18,cursor:"pointer",transition:"background .2s",marginBottom:16}} onMouseEnter={e=>e.target.style.background="var(--amber)"} onMouseLeave={e=>e.target.style.background="var(--accent)"}>Request Mission Briefing →</button>
+              {error && <div style={{color:"var(--red)",fontSize:13,marginBottom:16,fontFamily:"'Courier New',monospace"}}>{error}</div>}
+              <button type="submit" disabled={submitting} style={{width:"100%",background:submitting?"var(--dim)":"var(--accent)",color:"var(--navy)",border:"none",fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:4,textTransform:"uppercase",padding:18,cursor:submitting?"not-allowed":"pointer",transition:"background .2s",marginBottom:16,opacity:submitting?0.6:1}} onMouseEnter={e=>!submitting && (e.target.style.background="var(--amber)")} onMouseLeave={e=>!submitting && (e.target.style.background="var(--accent)")}>{submitting?"Submitting...":"Request Mission Briefing →"}</button>
               <div style={{fontFamily:"'Courier New',monospace",fontSize:9,lineHeight:1.6,color:"var(--dim)",borderTop:"1px solid rgba(255,255,255,.04)",paddingTop:16}}>By submitting this form you confirm you are an accredited investor or institutional representative. This briefing contains forward-looking statements and is intended for qualified recipients only. Atlas Response will not share your information with third parties.</div>
             </form>
           </>
@@ -1528,6 +1567,729 @@ function GlobalStyles() {
   );
 }
 
+// ── ABOUT ──────────────────────────────────────────────────────────────────────────────────
+function AboutPage({ go }) {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>About</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Building for <span style={{color:"var(--accent)"}}>Trust,</span> Not <span style={{color:"var(--accent)"}}>Hype.</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:24,maxWidth:700}}>Atlas Response was founded around a simple belief: critical medical logistics should not depend on outdated, fragmented transport options when time can directly affect patient outcomes.</p></Reveal>
+          <Reveal delay={180}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>We are developing an institution-grade operating model that combines aviation, command-and-control infrastructure, healthcare workflow integration, and chain-of-custody visibility into one coordinated platform.</p></Reveal>
+          <Reveal delay={240}><div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <button onClick={() => go("operations")} style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:2.5,textTransform:"uppercase",color:"var(--navy)",background:"var(--accent)",border:"none",padding:"13px 28px",clipPath:"polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%)",cursor:"pointer"}}>Operations Model →</button>
+            <button onClick={() => go("for-hospitals")} style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:2.5,textTransform:"uppercase",color:"var(--muted)",background:"transparent",border:"1px solid var(--rim)",padding:"13px 28px",cursor:"pointer"}}>For Hospitals</button>
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>What We're Building</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(34px,4vw,52px)",lineHeight:1.05,marginBottom:48}}>Four Core Pillars</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:52}}>
+            {[
+              {num:"01",title:"Aviation Operations",desc:"FAA Part 135-certified uncrewed aircraft network operating heavy-payload missions across the I-4 corridor."},
+              {num:"02",title:"Command & Control",desc:"A dedicated Remote Operations Center providing continuous mission oversight, weather monitoring, and flight supervision."},
+              {num:"03",title:"Healthcare Integration",desc:"A portal and chain-of-custody platform designed to fit inside hospital operations without EHR integration."},
+              {num:"04",title:"Chain-of-Custody",desc:"End-to-end mission logging, QR verification, environmental telemetry, and audit trails."}
+            ].map((pillar,i) => (
+              <Reveal key={i} delay={120+i*40}>
+                <div style={{display:"flex",gap:20}}>
+                  <div style={{fontFamily:"'Courier New',monospace",fontSize:11,color:"var(--accent)",letterSpacing:1,flexShrink:0}}>{pillar.num}</div>
+                  <div>
+                    <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:600,fontSize:17,marginBottom:10}}>{pillar.title}</div>
+                    <p style={{fontSize:14,lineHeight:1.7,color:"var(--muted)"}}>{pillar.desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)"}}>
+        <div className="section-inner">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:80,alignItems:"start"}}>
+            <Reveal><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Leadership</div>
+              <h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:28}}>Founder & CEO</h2>
+              <div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:32}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:26,marginBottom:8}}>Christopher Green</div>
+                <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--accent)",marginBottom:20}}>Founder & CEO</div>
+                <p style={{fontSize:14,lineHeight:1.8,color:"var(--muted)"}}>Christopher Green founded Atlas Response to build a more advanced and dependable model for medical logistics — one designed around operational control, regulatory discipline, and healthcare system trust.</p>
+              </div>
+            </div></Reveal>
+            <Reveal delay={80}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Team Architecture</div>
+              <h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:30,lineHeight:1.1,marginBottom:28}}>Multidisciplinary Leadership</h2>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,background:"var(--rim)",border:"1px solid var(--rim)"}}>
+                {["Director of Operations","Chief Pilot","Director of Maintenance","Safety & Compliance","ROC & Mission Systems","Healthcare Operations"].map((role,i) => (
+                  <div key={i} style={{background:"var(--panel)",padding:"12px 14px",fontSize:13,color:"var(--muted)"}}>{role}</div>
+                ))}
+              </div>
+            </div></Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── OPERATIONS ──────────────────────────────────────────────────────────────────────────────
+function OperationsPage({ go }) {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Operations Model</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Built Like an <span style={{color:"var(--accent)"}}>Air Carrier,</span> Not a Tech Demo</h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:28,maxWidth:700}}>Atlas Response is structured around FAA regulatory discipline, centralized ROC command, documented chain-of-custody, and zero PHI. Every system is designed to pass FAA scrutiny — and to carry the payloads that require it.</p></Reveal>
+          <Reveal delay={180}><div style={{display:"flex",gap:20}}>
+            <div style={{flex:"0 0 auto"}}>
+              <div style={{fontSize:32,fontWeight:700,color:"var(--accent)"}}>6</div>
+              <div style={{fontSize:12,color:"var(--muted)"}}>Remote pilot stations</div>
+            </div>
+            <div style={{flex:"0 0 auto"}}>
+              <div style={{fontSize:32,fontWeight:700,color:"var(--accent)"}}>3</div>
+              <div style={{fontSize:12,color:"var(--muted)"}}>Screens per station</div>
+            </div>
+            <div style={{flex:"0 0 auto"}}>
+              <div style={{fontSize:32,fontWeight:700,color:"var(--accent)"}}>~9</div>
+              <div style={{fontSize:12,color:"var(--muted)"}}>Daily missions (Phase A)</div>
+            </div>
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Command Infrastructure</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:44,lineHeight:1.05,marginBottom:40}}>The Remote Operations <span style={{color:"var(--accent)"}}>Center</span></h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:80}}>
+            <Reveal delay={120}><div>
+              <p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:20}}>The ROC is the operational heart of Atlas Response. It provides continuous mission oversight, weather monitoring, flight supervision, and exception management for every mission.</p>
+              <p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)"}}>This is not a dispatch center. It is a command center built on air carrier operations principles.</p>
+              <div style={{marginTop:32,display:"flex",gap:16}}>
+                <button onClick={() => go("network-map")} style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:2.5,textTransform:"uppercase",color:"var(--navy)",background:"var(--accent)",border:"none",padding:"13px 28px",clipPath:"polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%)",cursor:"pointer"}}>Network Map →</button>
+              </div>
+            </div></Reveal>
+            <Reveal delay={160}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:28}}>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:20}}>ROC Capabilities</div>
+              {["Continuous flight supervision","Weather and risk monitoring","Real-time mission tracking","Exception management","Pilot station coordination","Mission logging and audit","Chain-of-custody verification"].map((cap,i) => (
+                <div key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,.04)",fontSize:13,color:"var(--muted)"}}>
+                  <span style={{color:"var(--accent)"}}>✓</span>{cap}
+                </div>
+              ))}
+            </div></Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Operating Principles</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:44,lineHeight:1.05,marginBottom:40}}>Discipline <span style={{color:"var(--accent)"}}>Designed</span> In</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:20}}>
+            {[
+              {title:"Two-Person Abort",desc:"Every mission has two pilot stations. Either can abort."},
+              {title:"Zero PHI",desc:"We collect no patient information, no medical data."},
+              {title:"Audit Trails",desc:"Every action logged, every handoff verified, every event traced."},
+              {title:"FAA Compliance",desc:"Built for Part 135 certification from day one."},
+              {title:"Weather Gating",desc:"Missions gated on real-time weather, not forecasts."},
+              {title:"SLA Consistency",desc:"Same standards, same oversight, every mission."}
+            ].map((principle,i) => (
+              <Reveal key={i} delay={100+i*30}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:28,transition:"border-color .3s"}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:16,marginBottom:12}}>{principle.title}</div>
+                <p style={{fontSize:13,lineHeight:1.7,color:"var(--muted)"}}>{principle.desc}</p>
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── FOR HOSPITALS ──────────────────────────────────────────────────────────────────────────
+function ForHospitalsPage({ go }) {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>For Healthcare Providers</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>The Cost of <span style={{color:"var(--accent)"}}>Slow Logistics</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:24,maxWidth:700}}>Organ procurement windows are measured in hours. Specimen chains of custody cannot be interrupted. Medical urgencies do not wait for ground traffic.</p></Reveal>
+          <Reveal delay={180}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Atlas Response is built to solve the logistics problems that traditional transport cannot.</p></Reveal>
+          <Reveal delay={240}><button onClick={() => go("operations")} style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:13,letterSpacing:2.5,textTransform:"uppercase",color:"var(--navy)",background:"var(--accent)",border:"none",padding:"13px 28px",clipPath:"polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%)",cursor:"pointer"}}>How It Works →</button></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:80,alignItems:"start"}}>
+            <Reveal><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>What Hospitals Need</div>
+              <h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:28}}>Dependable Medical Logistics</h2>
+              <p style={{fontSize:15,lineHeight:1.85,color:"var(--muted)",marginBottom:20}}>Hospitals need a transport partner that:</p>
+              <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                {[
+                  "Integrates with your logistics workflows",
+                  "Maintains chain-of-custody with audit trails",
+                  "Delivers SLA-backed reliability",
+                  "Requires no IT integration projects",
+                  "Operates under FAA oversight",
+                  "Preserves patient confidentiality (zero PHI collection)"
+                ].map((item,i) => (
+                  <div key={i} style={{display:"flex",gap:12,padding:"14px 0",borderBottom:"1px solid rgba(255,255,255,.04)",fontSize:14,color:"var(--muted)"}}>
+                    <span style={{color:"var(--accent)",flexShrink:0}}>✓</span>{item}
+                  </div>
+                ))}
+              </div>
+            </div></Reveal>
+            <Reveal delay={80}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>The Difference</div>
+              <h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:30,lineHeight:1.1,marginBottom:28}}>How Atlas Changes the Equation</h2>
+              <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                {[
+                  {label:"Ground Transport",time:"2-4 hours",atlas:"25-45 min"},
+                  {label:"Specimen Window",time:"Limited",atlas:"Preserved"},
+                  {label:"Weather Risk",time:"High",atlas:"Mitigated"},
+                  {label:"Chain-of-Custody",time:"Manual logs",atlas:"Digital audit trail"},
+                  {label:"Regulatory Oversight",time:"None standard",atlas:"FAA Part 135"}
+                ].map((comp,i) => (
+                  <Reveal key={i} delay={120+i*30}><div style={{background:"var(--panel)",padding:16}}>
+                    <div style={{fontSize:13,color:"var(--muted)",marginBottom:8}}>{comp.label}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <div><div style={{fontSize:11,color:"var(--dim)"}}>Traditional</div><div style={{fontSize:13,color:"var(--muted)"}}>{comp.time}</div></div>
+                      <div><div style={{fontSize:11,color:"var(--sky)"}}>Atlas</div><div style={{fontSize:13,color:"var(--white)"}}>{comp.atlas}</div></div>
+                    </div>
+                  </div></Reveal>
+                ))}
+              </div>
+            </div></Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── HQ CAMPUS ──────────────────────────────────────────────────────────────────────────────
+function HQCampusPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>HQ Campus</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>30-Acre Lakeland <span style={{color:"var(--accent)"}}>Command Complex</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Atlas Response headquarters in Lakeland, Florida will house the Remote Operations Center, flight control rooms, maintenance and hangar facilities, and command infrastructure purpose-built for medical air logistics at scale.</p></Reveal>
+          <Reveal delay={180}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40}}>
+            <div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--accent)",marginBottom:8}}>30 acres</div>
+              <div style={{fontSize:14,color:"var(--muted)"}}>Purpose-built command complex</div>
+            </div>
+            <div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--accent)",marginBottom:8}}>Class C airspace</div>
+              <div style={{fontSize:14,color:"var(--muted)"}}>Established aviation corridor</div>
+            </div>
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Facility Components</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>A Command Infrastructure Built to Scale</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:20}}>
+            {[
+              {title:"Remote Operations Center",items:["6 pilot control stations","3 screens per station","Real-time mission tracking","Weather & risk monitoring"]},
+              {title:"Maintenance & Hangar",items:["Aircraft servicing","Maintenance management","Payload integration","Spare parts inventory"]},
+              {title:"Corporate & Admin",items:["Executive offices","Operations planning","Safety & compliance","Regulatory affairs"]}
+            ].map((section,i) => (
+              <Reveal key={i} delay={100+i*40}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:28}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:17,marginBottom:16}}>{section.title}</div>
+                {section.items.map((item,j) => (
+                  <div key={j} style={{fontSize:13,color:"var(--muted)",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}}>✓ {item}</div>
+                ))}
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── LANDING NETWORK ────────────────────────────────────────────────────────────────────────
+function LandingNetworkPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Hospital Network</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Landing Points Across the <span style={{color:"var(--accent)"}}>I-4 Corridor</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Phase A focuses on establishing landing infrastructure at major teaching hospitals and medical centers across central Florida, with expansion planned to Jacksonville, Miami, and Pensacola.</p></Reveal>
+          <Reveal delay={180}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:24}}>
+            {["Lakeland","Orlando","Tampa"].map((city,i) => (
+              <div key={i} style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20,textAlign:"center"}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:18,marginBottom:8}}>{city}</div>
+                <div style={{fontSize:12,color:"var(--dim)"}}>Landing sites established</div>
+              </div>
+            ))}
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Coverage</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>From Lakeland to the Region</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:80,alignItems:"start"}}>
+            <Reveal delay={120}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:20}}>Phase A Networks</div>
+              {["Lakeland Regional","Tampa General","Orlando Health","UCF College of Medicine"].map((hosp,i) => (
+                <div key={i} style={{fontSize:14,color:"var(--muted)",padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>✓ {hosp}</div>
+              ))}
+            </Reveal>
+            <Reveal delay={160}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:20}}>Future Expansion</div>
+              {["Jacksonville Medical Center","Miami-Dade Teaching Hospital","Pensacola Naval Medical Center","Additional regional partners"].map((hosp,i) => (
+                <div key={i} style={{fontSize:14,color:"var(--muted)",padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>→ {hosp}</div>
+              ))}
+            </Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── NETWORK MAP ────────────────────────────────────────────────────────────────────────────
+function NetworkMapPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Operations Network</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Command & <span style={{color:"var(--accent)"}}>Network Map</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>A unified view of the Atlas Response operational network — from the Remote Operations Center in Lakeland to landing sites across central Florida and beyond.</p></Reveal>
+          <Reveal delay={180}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:40,textAlign:"center",minHeight:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:2,color:"var(--dim)",marginBottom:20}}>NETWORK TOPOLOGY</div>
+              <div style={{fontSize:40,color:"var(--accent)",marginBottom:20}}>🛰</div>
+              <div style={{fontSize:16,color:"var(--muted)"}}>Central Command Hub<br/>↓<br/>6 Regional Landing Sites<br/>↓<br/>Hospital Partner Network</div>
+            </div>
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>System Architecture</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Distributed Command, Unified Control</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40}}>
+            <Reveal delay={120}><div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>ROC (Lakeland)</div>
+              {["Master flight control","Weather & airspace","Mission planning","Exception management","Audit & logging"].map((feat,i) => (
+                <div key={i} style={{fontSize:13,color:"var(--muted)",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>→ {feat}</div>
+              ))}
+            </Reveal>
+            <Reveal delay={160}><div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Landing Sites</div>
+              {["Redundant communications","Local ground operations","Payload handling","Hospital interfaces","Portal & tracking"].map((feat,i) => (
+                <div key={i} style={{fontSize:13,color:"var(--muted)",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>→ {feat}</div>
+              ))}
+            </Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── OPERATIONAL TIMELINE ──────────────────────────────────────────────────────────────────
+function OperationalTimelinePage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Timeline</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>36-Month <span style={{color:"var(--accent)"}}>FAA Certification</span> Roadmap</h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Atlas Response follows a disciplined 36-month certification pathway designed to establish FAA Part 135 authority, operational readiness, and institutional credibility.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <div style={{display:"flex",flexDirection:"column",gap:0,border:"1px solid var(--steel)"}}>
+            {[
+              {phase:"Months 1-6",title:"Foundation & Regulatory",items:["Company formation","FAA pre-application meetings","Safety & compliance planning","Command center design","Team recruitment"]},
+              {phase:"Months 7-18",title:"Development & Testing",items:["ROC build-out","Systems integration","Safety protocols","Flight testing","FAA Part 135 application"]},
+              {phase:"Months 19-30",title:"Certification & Expansion",items:["FAA Part 135 approval","Initial operations","Staff training","Partner integrations","Network expansion"]},
+              {phase:"Months 31-36",title:"Scale & Optimization",items:["Full network activation","Landing site expansion","SLA optimization","Operational excellence"]}
+            ].map((phase,i) => (
+              <Reveal key={i} delay={80+i*40}><div style={{display:"grid",gridTemplateColumns:"180px 1fr",borderBottom:i < 3 ? "1px solid var(--steel)" : "none"}}>
+                <div style={{background:"var(--panel)",padding:24,borderRight:"1px solid var(--steel)"}}>
+                  <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:1.5,textTransform:"uppercase",color:"var(--accent)",marginBottom:6}}>{phase.phase}</div>
+                  <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:16}}>{phase.title}</div>
+                </div>
+                <div style={{padding:24}}>
+                  {phase.items.map((item,j) => (
+                    <div key={j} style={{fontSize:13,color:"var(--muted)",padding:"8px 0",borderBottom:j < phase.items.length-1 ? "1px solid rgba(255,255,255,.04)" : "none"}}>✓ {item}</div>
+                  ))}
+                </div>
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── PHASE A ────────────────────────────────────────────────────────────────────────────────
+function PhaseAPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Phase A</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Initial <span style={{color:"var(--accent)"}}>Buildout</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Phase A establishes the operational, regulatory, and institutional foundation that Phase B requires. It is fully funded by Series A capital and runs across 36 months.</p></Reveal>
+          <Reveal delay={180}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+            <div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20}}>
+              <div style={{fontSize:14,color:"var(--dim)",marginBottom:12}}>Investment</div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--accent)"}}>$90M</div>
+            </div>
+            <div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20}}>
+              <div style={{fontSize:14,color:"var(--dim)",marginBottom:12}}>Timeline</div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--accent)"}}>36 months</div>
+            </div>
+          </div></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Deliverables</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>What Gets Built</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40}}>
+            {[
+              {cat:"Operational Infrastructure",items:["30-acre Lakeland HQ","Remote Operations Center","Maintenance & hangar","Command & control systems"]},
+              {cat:"Regulatory & Compliance",items:["FAA Part 135 certification","Safety management systems","Documentation & procedures","Compliance infrastructure"]},
+              {cat:"Fleet & Systems",items:["Uncrewed aircraft procurement","Payload integration","Chain-of-custody platform","Mission management system"]},
+              {cat:"Partnership & Market",items:["Hospital partner agreements","Landing site establishment","Portal & integration","Customer support model"]}
+            ].map((section,i) => (
+              <Reveal key={i} delay={100+i*40}><div>
+                <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:16}}>{section.cat}</div>
+                {section.items.map((item,j) => (
+                  <div key={j} style={{fontSize:13,color:"var(--muted)",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>✓ {item}</div>
+                ))}
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── CAPITAL DEPLOYMENT ───────────────────────────────────────────────────────────────────
+function CapitalDeploymentPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Deployment</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Series A Capital <span style={{color:"var(--accent)"}}>Allocation</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>The $90M Series A investment is allocated across operational infrastructure, FAA certification, fleet acquisition, systems development, and team building.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Allocation</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Where $90M is Deployed</h2></Reveal>
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            {[
+              {category:"Operational Infrastructure",amount:"$28M",pct:31,desc:"HQ campus, ROC build-out, hangar, command systems"},
+              {category:"Fleet & Systems",amount:"$22M",pct:24,desc:"Aircraft, payload integration, mission platform"},
+              {category:"FAA Certification",amount:"$16M",pct:18,desc:"Regulatory, compliance, safety infrastructure"},
+              {category:"Team & Operations",amount:"$14M",pct:16,desc:"Personnel, training, operational readiness"},
+              {category:"Working Capital",amount:"$10M",pct:11,desc:"Legal, insurance, partner agreements"}
+            ].map((item,i) => (
+              <Reveal key={i} delay={100+i*30}><div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <div>
+                    <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:16}}>{item.category}</div>
+                    <div style={{fontSize:13,color:"var(--muted)"}}>{item.desc}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:20,color:"var(--accent)"}}>{item.amount}</div>
+                    <div style={{fontSize:12,color:"var(--dim)"}}>{item.pct}%</div>
+                  </div>
+                </div>
+                <div style={{height:8,background:"var(--steel)",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:item.pct+"%",background:"linear-gradient(90deg,var(--accent),var(--amber))"}}/></div>
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── FINANCIAL RUNWAY ──────────────────────────────────────────────────────────────────────
+function FinancialRunwayPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Financials</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Financial <span style={{color:"var(--accent)"}}>Runway Model</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Atlas Response is capitalized for a 36-month path to operational profitability. The $90M Series A funds all critical infrastructure, regulatory certification, and go-to-market activities.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Projection</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Path to Profitability</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40,alignItems:"start"}}>
+            <Reveal delay={120}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:24}}>Timeline</div>
+              {[
+                {phase:"Months 1-12",status:"Foundation",color:"var(--dim)"},
+                {phase:"Months 13-24",status:"Ramp-up",color:"var(--sky)"},
+                {phase:"Months 25-36",status:"Scale & Profitability",color:"var(--green)"}
+              ].map((item,i) => (
+                <Reveal key={i} delay={140+i*30}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20,marginBottom:16}}>
+                  <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:1.5,textTransform:"uppercase",color:item.color,marginBottom:8}}>{item.phase}</div>
+                  <div style={{fontSize:14,color:"var(--muted)"}}>{item.status}</div>
+                </div></Reveal>
+              ))}
+            </Reveal>
+            <Reveal delay={160}><div>
+              <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--dim)",marginBottom:24}}>Key Metrics</div>
+              {[
+                {metric:"Missions per day (Month 12)",value:"~3-4"},
+                {metric:"Missions per day (Month 24)",value:"~8-12"},
+                {metric:"Revenue per mission",value:"$8-15K"},
+                {metric:"Breakeven operations",value:"Month 28-30"},
+                {metric:"Unit economics",value:"Positive YoY"}
+              ].map((item,i) => (
+                <Reveal key={i} delay={160+i*30}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:16,marginBottom:12}}>
+                  <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{item.metric}</div>
+                  <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:16,color:"var(--accent)"}}>{item.value}</div>
+                </div></Reveal>
+              ))}
+            </Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── STAFFING MODEL ───────────────────────────────────────────────────────────────────────
+function StaffingModelPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Team</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Phase A <span style={{color:"var(--accent)"}}>Staffing Model</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Atlas Response is built by disciplined, mission-driven professionals across operations, aviation, safety, compliance, and technology — hired and structured around operational readiness milestones.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Team Structure</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Critical Path Roles</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:20}}>
+            {[
+              {dept:"Operations & Aviation",roles:["Director of Operations","Chief Pilot / Chief Remote Pilot","Director of Maintenance","Safety & Compliance Officer"]},
+              {dept:"Command & Control",roles:["ROC Director","Mission Control Supervisor","Flight Data Officer","Remote Pilot Station Operators (6)"]},
+              {dept:"Corporate & Development",roles:["Chief Financial Officer","General Counsel","VP Business Development","VP Engineering"]},
+              {dept:"Healthcare Operations",roles:["VP Customer Operations","Hospital Integration Manager","Chain-of-Custody Officer","Customer Support"]},
+              {dept:"Support Functions",roles:["HR & Administration","Finance & Accounting","Legal & Compliance","IT & Systems"]},
+              {dept:"Total Headcount",roles:["Month 6: ~12-15","Month 12: ~22-25","Month 24: ~35-40","Month 36: ~45-50"]}
+            ].map((section,i) => (
+              <Reveal key={i} delay={100+i*30}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:15,marginBottom:16}}>{section.dept}</div>
+                {section.roles.map((role,j) => (
+                  <div key={j} style={{fontSize:12,color:"var(--muted)",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>→ {role}</div>
+                ))}
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── MISSION FLOW ──────────────────────────────────────────────────────────────────────────
+function MissionFlowPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Operations</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Medical Logistics <span style={{color:"var(--accent)"}}>Mission Flow</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>Every mission follows a disciplined operational flow — from hospital request through payload pickup, flight execution, delivery, chain-of-custody verification, and mission logging.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Workflow</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Mission Execution</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:20,textAlign:"center"}}>
+            {[
+              {num:"1",title:"Request",desc:"Hospital requests logistics support via portal"},
+              {num:"2",title:"Planning",desc:"ROC plans mission, checks weather, routes"},
+              {num:"3",title:"Pickup",desc:"Payload collection with QR verification"},
+              {num:"4",title:"Flight",desc:"Two-pilot station execution with telemetry"},
+              {num:"5",title:"Delivery",desc:"Handoff & chain-of-custody logging"}
+            ].map((step,i) => (
+              <Reveal key={i} delay={100+i*30}><div style={{background:"var(--panel)",border:"1px solid var(--steel)",padding:20}}>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:28,color:"var(--accent)",marginBottom:12}}>{step.num}</div>
+                <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:14,marginBottom:8}}>{step.title}</div>
+                <p style={{fontSize:12,color:"var(--muted)",lineHeight:1.6}}>{step.desc}</p>
+              </div></Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── UNIVERSAL POD ──────────────────────────────────────────────────────────────────────────
+function UniversalPodPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Product</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Universal Payload <span style={{color:"var(--accent)"}}>Pod</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>A modular, standardized payload container designed for medical logistics. Supports organs, specimens, time-sensitive materials, and pharmaceuticals with environmental monitoring and secure closure.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Specifications</div></Reveal>
+          <Reveal delay={80}><h2 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:40,lineHeight:1.1,marginBottom:40}}>Designed for Medical Transport</h2></Reveal>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40,alignItems:"start"}}>
+            <Reveal delay={120}><div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Physical Design</div>
+              {[
+                {k:"Dimensions",v:"500mm x 350mm x 250mm"},
+                {k:"Weight (empty)",v:"~6 kg"},
+                {k:"Capacity",v:"Modular (2-25L volumes)"},
+                {k:"Material",v:"Medical-grade polymer"},
+                {k:"Closure",v:"Tamper-evident secure fasteners"}
+              ].map((spec,i) => (
+                <Reveal key={i} delay={140+i*20}><div style={{background:"var(--panel)",padding:12,marginBottom:8,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                  <div style={{fontSize:11,color:"var(--dim)"}}>{spec.k}</div>
+                  <div style={{fontSize:12,color:"var(--white)",textAlign:"right"}}>{spec.v}</div>
+                </div></Reveal>
+              ))}
+            </Reveal>
+            <Reveal delay={160}><div>
+              <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Monitoring & Control</div>
+              {[
+                ["Temperature monitoring","±0.5°C accuracy"],
+                ["Environmental telemetry","Pressure, humidity"],
+                ["QR tracking","Unique pod ID & handler verification"],
+                ["Secure locking","Two-stage verification"],
+                ["Status alerts","Real-time mission updates"]
+              ].map((item,i) => (
+                <Reveal key={i} delay={180+i*20}><div style={{background:"var(--panel)",padding:12,marginBottom:8}}>
+                  <div style={{fontSize:11,color:"var(--dim)",marginBottom:4}}>{item[0]}</div>
+                  <div style={{fontSize:12,color:"var(--accent)"}}>{item[1]}</div>
+                </div></Reveal>
+              ))}
+            </Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── ACCESS GRANTED ──────────────────────────────────────────────────────────────────────────
+function AccessGrantedPage() {
+  return (
+    <div style={{minHeight:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr",position:"relative"}}>
+      <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,backgroundImage:"linear-gradient(rgba(78,174,232,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(78,174,232,.03) 1px,transparent 1px)",backgroundSize:"50px 50px"}}/>
+
+      <div style={{padding:"80px 56px",borderRight:"1px solid var(--rim)",display:"flex",flexDirection:"column",justifyContent:"center",position:"relative",zIndex:1}}>
+        <div style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,textTransform:"uppercase",color:"var(--dim)",marginBottom:40}}>ACCESS VERIFICATION</div>
+        <h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:54,lineHeight:.95,marginBottom:28}}>Access <span style={{color:"var(--accent)"}}>Granted.</span></h1>
+        <p style={{fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:"var(--muted)",marginBottom:40,maxWidth:440}}>Your Phase A Mission Briefing is being prepared. Check your inbox within 5 minutes — it will be delivered with supporting documentation and an invitation to schedule a direct call with our team.</p>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,fontFamily:"'Courier New',monospace",fontSize:11,color:"var(--muted)"}}>
+            <span style={{color:"var(--green)",fontSize:16}}>✓</span> Briefing dispatched to your email
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,fontFamily:"'Courier New',monospace",fontSize:11,color:"var(--muted)"}}>
+            <span style={{color:"var(--green)",fontSize:16}}>✓</span> Supporting documents included
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,fontFamily:"'Courier New',monospace",fontSize:11,color:"var(--muted)"}}>
+            <span style={{color:"var(--green)",fontSize:16}}>✓</span> Team follow-up pending
+          </div>
+        </div>
+      </div>
+
+      <div style={{padding:"80px 56px",display:"flex",flexDirection:"column",justifyContent:"center",background:"rgba(11,25,41,.4)",position:"relative",zIndex:1,textAlign:"center"}}>
+        <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:48,color:"var(--accent)",marginBottom:28}}>✓</div>
+        <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:16}}>Next Steps</div>
+        <div style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:26,color:"var(--white)",marginBottom:28,lineHeight:1.2}}>Check Your Inbox</div>
+        <p style={{fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.8,color:"var(--muted)",maxWidth:380,margin:"0 auto 36px"}}>Your briefing contains the full Phase A investment thesis, financial structure, operational roadmap, and team architecture. Our team will reach out within one business day to schedule a call.</p>
+        <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:3,textTransform:"uppercase",border:"1px solid var(--rim)",padding:"8px 16px",display:"inline-block",color:"var(--dim)"}}>Atlas Response — Where Response Is Mission.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── LEGAL ──────────────────────────────────────────────────────────────────────────────────
+function LegalPage() {
+  return (
+    <div style={{background:"var(--navy)"}}>
+      <section style={{minHeight:"100vh",display:"flex",alignItems:"center",paddingTop:72}}>
+        <div className="section-inner" style={{maxWidth:"900px"}}>
+          <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--sky)",marginBottom:18}}>Legal</div></Reveal>
+          <Reveal delay={60}><h1 style={{fontFamily:"'Arial Narrow',Impact,sans-serif",fontWeight:700,fontSize:"clamp(48px,5vw,72px)",lineHeight:.95,marginBottom:28}}>Disclosure & <span style={{color:"var(--accent)"}}>Legal</span></h1></Reveal>
+          <Reveal delay={120}><p style={{fontSize:16,lineHeight:1.85,color:"var(--muted)",marginBottom:32,maxWidth:700}}>This briefing and all related materials are provided to accredited investors and qualified recipients only. They contain forward-looking statements and proprietary information.</p></Reveal>
+        </div>
+      </section>
+
+      <section style={{borderTop:"1px solid rgba(255,255,255,.04)",background:"var(--deep)"}}>
+        <div className="section-inner">
+          <div style={{maxWidth:800}}>
+            <Reveal><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:24}}>Disclaimer</div></Reveal>
+            <Reveal delay={80}><div style={{fontSize:14,lineHeight:1.9,color:"var(--muted)",marginBottom:32}}>
+              <p style={{marginBottom:16}}>This material contains forward-looking statements regarding Atlas Response's business plans, expected results, and other future events. These statements are based on current expectations and assumptions and are subject to risks and uncertainties that could cause actual results to differ materially.</p>
+              <p style={{marginBottom:16}}>This briefing is confidential and intended solely for authorized recipients. It may not be reproduced, distributed, or transmitted to any third party without prior written consent from Atlas Response.</p>
+              <p>Atlas Response does not warrant the accuracy or completeness of any information presented and disclaims liability for any reliance on this material.</p>
+            </div></Reveal>
+            <Reveal delay={160}><div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"var(--sky)",marginBottom:24}}>Accredited Investor</div></Reveal>
+            <Reveal delay={200}><div style={{fontSize:14,lineHeight:1.9,color:"var(--muted)"}}>
+              <p>By accessing this briefing, you represent and warrant that you are an accredited investor as defined by applicable securities laws, or an authorized representative of an institutional investor.</p>
+            </div></Reveal>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState("home");
   const go = (p) => { setPage(p); window.scrollTo(0, 0); };
@@ -1544,12 +2306,27 @@ export default function App() {
       <main style={{paddingTop: showNav ? 0 : 0}}>
         {page === "home"             && <HomePage go={go} />}
         {page === "fleet"            && <FleetPage go={go} />}
+        {page === "about"            && <AboutPage go={go} />}
+        {page === "operations"       && <OperationsPage go={go} />}
+        {page === "for-hospitals"    && <ForHospitalsPage go={go} />}
+        {page === "hq-campus"        && <HQCampusPage go={go} />}
+        {page === "landing-network"  && <LandingNetworkPage go={go} />}
+        {page === "network-map"      && <NetworkMapPage go={go} />}
+        {page === "operational-timeline" && <OperationalTimelinePage go={go} />}
+        {page === "phase-a"          && <PhaseAPage go={go} />}
+        {page === "universal-pod"    && <UniversalPodPage go={go} />}
+        {page === "capital-deployment" && <CapitalDeploymentPage go={go} />}
+        {page === "financial-runway" && <FinancialRunwayPage go={go} />}
+        {page === "staffing-model"   && <StaffingModelPage go={go} />}
+        {page === "mission-flow"     && <MissionFlowPage go={go} />}
+        {page === "access-granted"   && <AccessGrantedPage go={go} />}
+        {page === "legal"            && <LegalPage go={go} />}
         {page === "investors"        && <InvestorsPage go={go} />}
         {page === "briefing"         && <BriefingPage go={go} />}
         {page === "why-florida"      && <WhyFloridaPage go={go} />}
         {page === "partners"         && <PartnersPage go={go} />}
         {page === "contact"          && <ContactPage go={go} />}
-        {page === "request-briefing" && <RequestBriefingPage />}
+        {page === "request-briefing" && <RequestBriefingPage go={go} />}
       </main>
       {showFooter && <Footer go={go} />}
     </>
