@@ -1,0 +1,1934 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+const GF = `@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap');`;
+
+const T = {
+  bg:"#04070e", surface:"#080c17", card:"#0b101e",
+  border:"rgba(255,255,255,0.07)", borderHi:"rgba(255,255,255,0.13)",
+  text:"#e8edf5", sub:"#7a8599", faint:"#1a2235",
+  sky:"#38bdf8", skyD:"rgba(56,189,248,0.10)",
+  orange:"#fb923c", orangeD:"rgba(251,146,60,0.10)",
+  green:"#34d399", greenD:"rgba(52,211,153,0.09)",
+  red:"#f87171", redD:"rgba(248,113,113,0.09)",
+  purple:"#a78bfa", purpleD:"rgba(167,139,250,0.09)",
+  gold:"#fbbf24", goldD:"rgba(251,191,36,0.09)",
+};
+
+// localStorage bridge — syncs with ROC console
+const BK = {
+  mission:"atl_mission", queued:"atl_queued",
+  alerts:"atl_alerts", messages:"atl_messages", custody:"atl_custody",
+};
+const bR = (k) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch{return null;} };
+const bW = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch{} };
+
+// Mission phases
+const M0 = {
+  id:"ATLAS-0452", pod:"POD-07", aircraft:"Atlas-04",
+  origin:"Lakeland Regional", destination:"Tampa General",
+  priority:"Class B", phase:"idle",
+  alt:0, speed:0, heading:142, progress:0, eta:null, distanceNM:72,
+  temp:35.5, tempOk:true, seal:false, shock:false,
+  battPrimary:98, battBackup:100, lteSignal:99, perfBatt:94,
+  ischemicWindowMin:267,
+  qrData:"ATL-POD-07-2024|ATLAS-0452|ACTIVE", rfidTag:"E2004B1E4B56A3F1",
+  envProfile:"34-37C", accessWindow:"Active",
+  sealedAt:null, departedAt:null, arrivedAt:null, deliveredAt:null, anomalies:[],
+};
+
+const Q0 = [
+  { id:"REQ-0079", from:"Orlando Health", to:"UF Health Jacksonville",
+    priority:"Class A", payload:"Living Organ — Normothermic Perfusion Console", requestedAt:"12:45",
+    status:"queued", notes:"Time critical" },
+];
+
+const PH = {
+  idle:        { label:"Awaiting Scan-In",  color:T.sub,    dot:T.sub },
+  scanning_in: { label:"Verifying Pod",     color:T.gold,   dot:T.gold },
+  loaded:      { label:"Cargo Loading",     color:T.orange, dot:T.orange },
+  sealed:      { label:"Pod Sealed",        color:T.sky,    dot:T.sky },
+  in_transit:  { label:"In Transit",        color:T.sky,    dot:T.sky },
+  arriving:    { label:"Approaching",       color:T.sky,    dot:T.sky },
+  landing:     { label:"Landing",           color:T.gold,   dot:T.gold },
+  landed:      { label:"Aircraft Landed",   color:T.green,  dot:T.green },
+  scanning_out:{ label:"Scan-Out",          color:T.orange, dot:T.orange },
+  delivered:   { label:"Delivered",         color:T.green,  dot:T.green },
+};
+
+const HIST0 = [
+  { id:"ATLAS-0413", origin:"Lakeland Regional", destination:"Tampa General",
+    priority:"Class A", deliveredAt:"Today 11:52", duration:"23 min", tempOk:true, sealOk:true },
+  { id:"ATLAS-0401", origin:"Orlando Health", destination:"UF Health Jacksonville",
+    priority:"Class B", deliveredAt:"Mar 31 09:15", duration:"38 min", tempOk:true, sealOk:true },
+  { id:"ATLAS-0388", origin:"Tampa General", destination:"Lakeland Regional",
+    priority:"Class C", deliveredAt:"Mar 29 16:40", duration:"19 min", tempOk:true, sealOk:true },
+];
+
+const CUS0 = [
+  { time:"11:52", event:"Delivery confirmed", type:"success", mission:"ATLAS-0413", actor:"Handler Webb" },
+  { time:"11:50", event:"Pod released — RFID tap confirmed", type:"secure", mission:"ATLAS-0413", actor:"Handler Webb" },
+  { time:"11:46", event:"Aircraft landed at Tampa General", type:"info", mission:"ATLAS-0413", actor:"Atlas-04" },
+  { time:"11:29", event:"Pod sealed — custody transferred to Atlas", type:"secure", mission:"ATLAS-0413", actor:"Handler Webb" },
+];
+
+const MSG0 = [
+  { id:1, from:"ROC", text:"Access window opens in 8 minutes. Please be at the pod area.", time:"12:02", read:true },
+  { id:2, from:"ROC", text:"Aircraft fuelled and pre-flight complete. Ready on your seal.", time:"11:55", read:true },
+];
+
+const PR = {
+  "Class A":{ color:T.red },
+  "Class B":{ color:T.orange },
+  "Class C":{ color:T.purple },
+};
+
+const USERS = {
+  customer: { email:"drpatel@lakelandregional.org", pin:"1234", name:"Dr. Patel", role:"customer", roleLabel:"Hospital Staff" },
+  handler:  { email:"m.webb@atlasresponse.com",     pin:"5678", name:"Marcus Webb", role:"handler", roleLabel:"Registered Handler" },
+};
+
+// ─── ATOMS ───────────────────────────────────────────────────
+
+function Dot({ color, pulse, size=7 }) {
+  return (
+    <span style={{ position:"relative", display:"inline-flex", width:size, height:size, flexShrink:0 }}>
+      {pulse && <span style={{ position:"absolute", inset:0, borderRadius:"50%", background:color, opacity:0.35, animation:"ping 1.8s infinite" }}/>}
+      <span style={{ width:size, height:size, borderRadius:"50%", background:color, display:"block" }}/>
+    </span>
+  );
+}
+
+function Pill({ children, color, sm }) {
+  return (
+    <span style={{
+      fontSize:sm?7.5:9, fontWeight:700,
+      padding:sm?"1px 6px":"2px 9px", borderRadius:99,
+      background:`${color}14`, color,
+      border:`1px solid ${color}22`, whiteSpace:"nowrap",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function Mono({ children, color=T.sub, size=11 }) {
+  return <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:size, color, fontWeight:500 }}>{children}</span>;
+}
+
+function Spin({ color=T.sky, size=22 }) {
+  return <div style={{ width:size, height:size, border:`2.5px solid ${color}20`, borderTopColor:color, borderRadius:"50%", animation:"spin .75s linear infinite", flexShrink:0 }}/>;
+}
+
+function Btn({ children, onClick, color=T.sky, outline, disabled, sm, full }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width:full?"100%":"auto",
+        padding:sm?"9px 14px":"12px 18px",
+        borderRadius:13,
+        border:outline?`1.5px solid ${color}45`:"none",
+        background:outline?"transparent":disabled?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${color},${color}bb)`,
+        color:outline?color:disabled?T.sub:"#fff",
+        fontSize:sm?11:13, fontWeight:800,
+        cursor:disabled?"default":"pointer",
+        fontFamily:"'DM Sans',sans-serif",
+        boxShadow:(!outline&&!disabled)?`0 4px 16px ${color}28`:"none",
+        transition:"all .18s",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Card({ children, accent, p="13px 14px", r=15, style:s={} }) {
+  return (
+    <div style={{ background:T.card, border:`1px solid ${accent?accent+"1e":T.border}`, borderRadius:r, padding:p, ...s }}>
+      {children}
+    </div>
+  );
+}
+
+function SLab({ children, color=T.sub }) {
+  return <div style={{ fontSize:8.5, fontWeight:700, color, textTransform:"uppercase", letterSpacing:".15em", marginBottom:8 }}>{children}</div>;
+}
+
+function TR({ label, value, ok, warn, mono }) {
+  const c = ok===false ? T.red : warn ? T.orange : T.green;
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${T.border}` }}>
+      <span style={{ fontSize:11, color:T.sub }}>{label}</span>
+      <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+        {ok!==undefined && <div style={{ width:5, height:5, borderRadius:"50%", background:c }}/>}
+        <span style={{ fontSize:11, fontWeight:600, color:ok===false?T.red:T.text, fontFamily:mono?"'JetBrains Mono',monospace":"inherit" }}>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function Back({ onClick }) {
+  return (
+    <button onClick={onClick} style={{ background:"rgba(255,255,255,0.06)", border:"none", borderRadius:9, width:28, height:28, cursor:"pointer", color:"#94a3b8", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+      ‹
+    </button>
+  );
+}
+
+function PBar({ pct, color, h=3 }) {
+  return (
+    <div style={{ height:h, background:"rgba(255,255,255,0.06)", borderRadius:99, overflow:"hidden" }}>
+      <div style={{ height:"100%", width:`${Math.min(pct,100)}%`, background:color, borderRadius:99, transition:"width 1s ease" }}/>
+    </div>
+  );
+}
+
+// ─── LIVE MAP ─────────────────────────────────────────────────
+
+function LiveMap({ progress, phase }) {
+  const t = Math.min((progress||0)/100, .99);
+  const sx=50,sy=150,ex=670,ey=52,cx=360,cy=22;
+  const bx = (1-t)*(1-t)*sx + 2*(1-t)*t*cx + t*t*ex;
+  const by = (1-t)*(1-t)*sy + 2*(1-t)*t*cy + t*t*ey;
+  const active = ["in_transit","arriving","landing"].includes(phase);
+  const dot = phase==="landing" ? T.gold : phase==="landed" ? T.green : T.sky;
+
+  return (
+    <div style={{ background:"linear-gradient(155deg,#040810,#060c18)", borderRadius:16, overflow:"hidden", border:`1px solid ${T.border}`, position:"relative" }}>
+      <svg viewBox="0 0 740 185" style={{ width:"100%", height:155, display:"block" }}>
+        {[0,1,2].map(i => <line key={i} x1="0" y1={i*92} x2="740" y2={i*92} stroke="rgba(255,255,255,0.02)" strokeWidth="1"/>)}
+        <path d={`M ${sx} ${sy} Q ${cx} ${cy} ${bx} ${by}`} stroke={dot} strokeWidth="2" fill="none" strokeOpacity=".65"/>
+        <path d={`M ${bx} ${by} Q ${cx} ${cy} ${ex} ${ey}`} stroke={T.sky} strokeWidth="1.5" fill="none" strokeOpacity=".13" strokeDasharray="6 4"/>
+        {[[sx,sy,"LKL","b"],[ex,ey,"TPA","t"]].map(([x,y,n,p]) => (
+          <g key={n}>
+            <circle cx={x} cy={y} r="6" fill="#0b101e" stroke="#1e3a5a" strokeWidth="1.5"/>
+            <circle cx={x} cy={y} r="2.5" fill="#2d4a6e"/>
+            <text x={x} y={p==="b"?y+14:y-10} textAnchor="middle" fill="#1e3a5a" fontSize="8.5" fontFamily="JetBrains Mono">{n}</text>
+          </g>
+        ))}
+        {active && (
+          <>
+            <circle cx={bx} cy={by} r="20" fill="none" stroke={dot} strokeWidth="1" strokeOpacity=".18" style={{animation:"ping 2.2s infinite"}}/>
+            <circle cx={bx} cy={by} r="11" fill={`${dot}14`} stroke={dot} strokeWidth="1.5"/>
+            <circle cx={bx} cy={by} r="4.5" fill={dot}/>
+            <text x={bx} y={by-17} textAnchor="middle" fill={dot} fontSize="8" fontFamily="JetBrains Mono" fontWeight="700">Atlas-04</text>
+          </>
+        )}
+        {phase==="sealed" && (
+          <g>
+            <circle cx={sx} cy={sy} r="10" fill={`${T.orange}14`} stroke={T.orange} strokeWidth="1.5"/>
+            <circle cx={sx} cy={sy} r="4" fill={T.orange}/>
+            <text x={sx} y={sy-16} textAnchor="middle" fill={T.orange} fontSize="8" fontFamily="JetBrains Mono">Ready</text>
+          </g>
+        )}
+        {phase==="landed" && (
+          <g>
+            <circle cx={ex} cy={ey} r="12" fill={`${T.green}14`} stroke={T.green} strokeWidth="2"/>
+            <circle cx={ex} cy={ey} r="5" fill={T.green}/>
+            <text x={ex} y={ey-18} textAnchor="middle" fill={T.green} fontSize="8" fontFamily="JetBrains Mono" fontWeight="700">Landed</text>
+          </g>
+        )}
+      </svg>
+      <div style={{ position:"absolute", top:8, right:10, display:"flex", alignItems:"center", gap:4 }}>
+        {active && <><Dot color={T.green} pulse size={5}/><Mono color={T.green} size={8}>LIVE</Mono></>}
+        {phase==="landed" && <Mono color={T.green} size={8}>ON GROUND</Mono>}
+        {phase==="sealed" && <Mono color={T.orange} size={8}>READY TO DEPART</Mono>}
+      </div>
+    </div>
+  );
+}
+
+// ─── TELEMETRY ────────────────────────────────────────────────
+
+function TelPanel({ m }) {
+  const active = ["in_transit","arriving","landing"].includes(m.phase);
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      <Card accent={T.sky} p="12px 13px">
+        <SLab color={T.sky}>Aircraft Telemetry</SLab>
+        <TR label="Status"    value={active?"In Flight":m.phase==="landed"?"On Ground — Stopped":"On Ground"} ok={active}/>
+        <TR label="Altitude"  value={active?`${Math.round(m.alt).toLocaleString()} ft`:"—"} ok={active} mono/>
+        <TR label="Speed"     value={active?`${Math.round(m.speed)} kts`:"—"} ok={active} mono/>
+        <TR label="ETA"       value={m.eta?`${Math.round(m.eta)} min`:"—"} ok={!!m.eta} mono/>
+        <TR label="Progress"  value={`${Math.round(m.progress)}%`} ok mono/>
+      </Card>
+      <Card accent={m.tempOk?T.green:T.red} p="12px 13px">
+        <SLab color={m.tempOk?T.green:T.red}>Pod Telemetry</SLab>
+        <TR label="Temperature"  value={`${m.temp.toFixed(1)}°C`} ok={m.tempOk} warn={!m.tempOk} mono/>
+        <TR label="Seal"         value={m.seal?"Intact":"Not sealed"} ok={m.seal}/>
+        <TR label="Shock"        value={m.shock?"DETECTED":"None"} ok={!m.shock}/>
+        <TR label="Batt Primary" value={`${m.battPrimary}%`} ok={m.battPrimary>20} mono/>
+        <TR label="Batt Backup"  value={`${m.battBackup}%`} ok mono/>
+        <TR label="LTE Signal"   value={`${m.lteSignal}%`} ok={m.lteSignal>70} mono/>
+        <TR label="Perfusion Batt" value={`${m.perfBatt}%`} ok={m.perfBatt>20} mono/>
+        {m.anomalies && m.anomalies.length > 0 && (
+          <div style={{ marginTop:8, padding:"8px 10px", background:T.redD, border:`1px solid ${T.red}22`, borderRadius:9 }}>
+            <div style={{ fontSize:9, fontWeight:700, color:T.red, marginBottom:4 }}>
+              ⚠ {m.anomalies.length} Anomaly Report{m.anomalies.length>1?"s":""}
+            </div>
+            {m.anomalies.map((a,i) => (
+              <div key={i} style={{ fontSize:10, color:T.sub, marginTop:2 }}>{a.type} · {a.time}</div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ─── SCANNERS ─────────────────────────────────────────────────
+
+function QRScan({ podId, qrData, mode, accent, onSuccess, onFail, onBack }) {
+  const [st, setSt] = useState("idle");
+  const isIn = mode === "in";
+  const title = isIn ? "Scan to Load" : "Scan to Release";
+  const sl    = isIn ? `${podId} verified` : "Pod released";
+  const sn    = isIn ? "Pod confirmed — proceed to load cargo" : "Cargo ready for receipt";
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        {st !== "success" && <Back onClick={onBack}/>}
+        <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>{title}</div>
+      </div>
+      <div style={{ padding:"16px", display:"flex", flexDirection:"column", gap:13, alignItems:"center" }}>
+        <div style={{ width:"100%", maxWidth:210, aspectRatio:"1", background:"rgba(0,0,0,0.55)", borderRadius:18, border:`1px solid ${st==="success"?T.green+"45":T.border}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden", transition:"border-color .3s" }}>
+          {[["0%","0%"],["0%","100%"],["100%","0%"],["100%","100%"]].map(([t,l],i) => (
+            <div key={i} style={{
+              position:"absolute",
+              top:t==="0%"?11:"auto", bottom:t==="100%"?11:"auto",
+              left:l==="0%"?11:"auto", right:l==="100%"?11:"auto",
+              width:20, height:20,
+              borderTop:t==="0%"?`2.5px solid ${st==="success"?T.green:accent}`:"none",
+              borderBottom:t==="100%"?`2.5px solid ${st==="success"?T.green:accent}`:"none",
+              borderLeft:l==="0%"?`2.5px solid ${st==="success"?T.green:accent}`:"none",
+              borderRight:l==="100%"?`2.5px solid ${st==="success"?T.green:accent}`:"none",
+              borderRadius:2, transition:"border-color .3s",
+            }}/>
+          ))}
+          {st==="scanning" && (
+            <div style={{ position:"absolute", left:12, right:12, height:2, background:`linear-gradient(90deg,transparent,${accent},transparent)`, animation:"scanLine 1s ease-in-out infinite" }}/>
+          )}
+          {st==="idle" && (
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:30, opacity:.35, marginBottom:6 }}>{isIn?"📷":"🔓"}</div>
+              <div style={{ fontSize:9.5, color:T.sub }}>Point camera at QR label on pod</div>
+            </div>
+          )}
+          {st==="scanning" && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+              <Spin color={accent}/>
+              <div style={{ fontSize:10, color:accent, fontWeight:600 }}>Scanning…</div>
+            </div>
+          )}
+          {st==="success" && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:7, animation:"fadeUp .3s ease" }}>
+              <div style={{ width:46, height:46, borderRadius:"50%", background:`${T.green}15`, border:`2px solid ${T.green}40`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><path d="M1 7l5 5L17 1" stroke={T.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+              <div style={{ fontSize:10, fontWeight:700, color:T.green }}>{sl}</div>
+              <div style={{ position:"absolute", bottom:7, left:7, right:7, background:"rgba(0,0,0,0.82)", borderRadius:7, padding:"4px 7px" }}>
+                <Mono color={T.green} size={7.5}>{qrData}</Mono>
+              </div>
+            </div>
+          )}
+        </div>
+        <Card style={{ width:"100%" }} p="9px 13px">
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:8.5, color:T.sub, textTransform:"uppercase", letterSpacing:".1em" }}>Expected Pod</div>
+              <Mono color={T.text} size={12}>{podId}</Mono>
+            </div>
+            {st==="success" && <Pill color={T.green}>Match ✓</Pill>}
+          </div>
+        </Card>
+        {st !== "success" ? (
+          <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
+            <Btn onClick={() => { setSt("scanning"); setTimeout(() => setSt("success"), 1400); }} color={accent} full disabled={st==="scanning"} sm>
+              {st==="scanning" ? "Scanning…" : "Simulate QR Scan"}
+            </Btn>
+            <Btn onClick={() => onFail("qr")} color={T.red} outline full sm>Test Failed Scan</Btn>
+          </div>
+        ) : (
+          <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
+            <div style={{ padding:"9px 12px", background:`${T.green}09`, border:`1px solid ${T.green}18`, borderRadius:11 }}>
+              <div style={{ fontSize:11, color:"#6ee7b7", lineHeight:1.6 }}>{sn}</div>
+            </div>
+            <Btn onClick={onSuccess} color={T.green} full sm>Continue →</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RFIDScan({ podId, rfidTag, mode, accent, onSuccess, onFail, onBack }) {
+  const [st, setSt] = useState("idle");
+  const isIn = mode === "in";
+  const title = isIn ? "Tap RFID to Load" : "Tap RFID to Release";
+  const sl    = isIn ? `${podId} RFID matched` : "Pod released via RFID";
+  const tap   = () => { setSt("reading"); setTimeout(() => setSt("success"), 950); };
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        {st !== "success" && <Back onClick={onBack}/>}
+        <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>{title}</div>
+      </div>
+      <div style={{ padding:"16px", display:"flex", flexDirection:"column", gap:13, alignItems:"center" }}>
+        <div
+          onClick={st==="idle" ? tap : undefined}
+          style={{ width:"100%", maxWidth:210, height:160, borderRadius:18, background:"rgba(0,0,0,0.45)", border:`1.5px solid ${st==="success"?T.green+"45":st==="reading"?accent+"55":T.border}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10, position:"relative", overflow:"hidden", cursor:st==="idle"?"pointer":"default", transition:"border-color .3s" }}
+        >
+          {st==="reading" && [0,1,2].map(i => (
+            <div key={i} style={{ position:"absolute", width:62+i*32, height:62+i*32, borderRadius:"50%", border:`1.5px solid ${accent}`, opacity:0, animation:`rfidRipple 1.2s ease-out ${i*.3}s infinite` }}/>
+          ))}
+          {st==="idle" && (
+            <>
+              <div style={{ fontSize:30, opacity:.55 }}>📡</div>
+              <div style={{ fontSize:9.5, color:T.sub, textAlign:"center", maxWidth:130 }}>Hold phone NFC to RFID tag on pod</div>
+              <div style={{ fontSize:8.5, color:accent, fontWeight:700, textTransform:"uppercase", letterSpacing:".08em" }}>Tap to begin</div>
+            </>
+          )}
+          {st==="reading" && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+              <div style={{ fontSize:26 }}>📡</div>
+              <div style={{ fontSize:10, color:accent, fontWeight:700 }}>Reading RFID…</div>
+            </div>
+          )}
+          {st==="success" && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:7, animation:"fadeUp .3s ease" }}>
+              <div style={{ width:46, height:46, borderRadius:"50%", background:`${T.green}15`, border:`2px solid ${T.green}40`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><path d="M1 7l5 5L17 1" stroke={T.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+              <div style={{ fontSize:10, fontWeight:700, color:T.green }}>{sl}</div>
+            </div>
+          )}
+        </div>
+        <Card style={{ width:"100%" }} p="9px 13px">
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:8.5, color:T.sub, textTransform:"uppercase", letterSpacing:".1em" }}>Expected RFID</div>
+              <Mono color={T.sub} size={9.5}>{rfidTag}</Mono>
+            </div>
+            {st==="success" && <Pill color={T.green}>Matched ✓</Pill>}
+          </div>
+        </Card>
+        {st !== "success" ? (
+          <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
+            <Btn onClick={tap} color={accent} full disabled={st==="reading"} sm>
+              {st==="reading" ? "Reading…" : "Simulate RFID Tap"}
+            </Btn>
+            <Btn onClick={() => onFail("rfid")} color={T.red} outline full sm>Test Failed Read</Btn>
+          </div>
+        ) : (
+          <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
+            <div style={{ padding:"9px 12px", background:`${T.green}09`, border:`1px solid ${T.green}18`, borderRadius:11 }}>
+              <div style={{ fontSize:11, color:"#6ee7b7", lineHeight:1.6 }}>Pod verified via RFID</div>
+            </div>
+            <Btn onClick={onSuccess} color={T.green} full sm>Continue →</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScanChooser({ mode, accent, onQR, onRFID, onBack }) {
+  const title = mode==="in" ? "Verify Pod Identity" : "Release Pod Cargo";
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        <Back onClick={onBack}/>
+        <div>
+          <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>{title}</div>
+          <div style={{ fontSize:10, color:T.sub, marginTop:1 }}>Choose scan method</div>
+        </div>
+      </div>
+      <div style={{ padding:"16px", display:"flex", flexDirection:"column", gap:12 }}>
+        {[
+          {
+            label:"Scan QR Code", sub:"Point camera at QR label on pod",
+            onClick:onQR, ac:accent,
+            icon:(
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="7" height="7" rx="1" stroke={accent} strokeWidth="2"/>
+                <rect x="14" y="3" width="7" height="7" rx="1" stroke={accent} strokeWidth="2"/>
+                <rect x="3" y="14" width="7" height="7" rx="1" stroke={accent} strokeWidth="2"/>
+                <path d="M14 14h2v2h-2zM18 14h3v3M17 18v3M14 21h7" stroke={accent} strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            ),
+          },
+          {
+            label:"Tap RFID Tag", sub:"Hold phone NFC reader to tag on pod",
+            onClick:onRFID, ac:T.sky,
+            icon:(
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12.5A7 7 0 0 1 12 6M19 12.5A7 7 0 0 0 12 6" stroke={T.sky} strokeWidth="2" strokeLinecap="round"/>
+                <path d="M8 12.5A4 4 0 0 1 12 9M16 12.5A4 4 0 0 0 12 9" stroke={T.sky} strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="12" cy="16" r="1.5" fill={T.sky}/>
+                <path d="M12 14v-2" stroke={T.sky} strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            ),
+          },
+        ].map(({ label, sub, onClick, ac, icon }) => (
+          <div key={label} onClick={onClick} style={{ background:`${ac}07`, border:`1.5px solid ${ac}20`, borderRadius:16, padding:"14px 15px", cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:42, height:42, borderRadius:12, background:`${ac}14`, border:`1px solid ${ac}26`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              {icon}
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{label}</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>{sub}</div>
+            </div>
+            <span style={{ fontSize:16, color:T.sub }}>›</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuthChecks({ accent, onSuccess, onBack }) {
+  const [step, setStep] = useState(0);
+  const checks = [
+    "Confirming mission assignment…",
+    "Validating handler authorization…",
+    "Checking access window…",
+    "All checks passed",
+  ];
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        {step===0 && <Back onClick={onBack}/>}
+        <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>System Authorization</div>
+      </div>
+      <div style={{ padding:"20px 16px", display:"flex", flexDirection:"column", gap:14, alignItems:"center" }}>
+        <div style={{ width:76, height:76, borderRadius:"50%", background:step===checks.length-1?T.greenD:`${accent}10`, border:`2px solid ${step===checks.length-1?T.green:accent}30`, display:"flex", alignItems:"center", justifyContent:"center", transition:"all .5s" }}>
+          {step === checks.length-1 ? (
+            <svg width="28" height="22" viewBox="0 0 28 22" fill="none" style={{ animation:"fadeUp .3s ease" }}>
+              <path d="M2 11l8 8L26 2" stroke={T.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+              <Spin color={accent} size={20}/>
+              <Mono color={accent} size={8}>{step+1}/{checks.length-1}</Mono>
+            </div>
+          )}
+        </div>
+        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:6 }}>
+          {checks.map((c, i) => {
+            const done = i < step;
+            const active = i === step;
+            return (
+              <div key={c} style={{ display:"flex", alignItems:"center", gap:9, padding:"8px 12px", borderRadius:11, transition:"all .3s", background:done?`${T.green}07`:active?`${accent}08`:T.card, border:`1px solid ${done?`${T.green}18`:active?accent+"22":T.border}` }}>
+                <div style={{ width:16, height:16, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", background:done?T.green:active?accent:"rgba(255,255,255,0.05)" }}>
+                  {done && <svg width="7" height="5" viewBox="0 0 7 5" fill="none"><path d="M1 2.5l1.5 1.5 3.5-3.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  {active && <div style={{ width:4, height:4, borderRadius:"50%", background:"#fff" }}/>}
+                </div>
+                <span style={{ fontSize:11, fontWeight:active?600:400, color:done?"#6ee7b7":active?T.text:T.sub }}>{c}</span>
+              </div>
+            );
+          })}
+        </div>
+        <Btn onClick={() => { if(step < checks.length-1) setStep(s => s+1); else onSuccess(); }} color={step===checks.length-1?T.green:accent} full sm>
+          {step===checks.length-1 ? "Access Authorized — Continue →" : "Next →"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─── PRE-ARRIVAL CHECKLIST ────────────────────────────────────
+
+function PreArrivalChecklist({ mission, onComplete, onBack }) {
+  const ITEMS = [
+    { id:"surgical", label:"Surgical team is scrubbed and positioned",
+      detail:"Confirm transplant team is scrubbed, gowned, and at the OR table" },
+    { id:"cradle",   label:"Perfusion console cradle is in position and powered",
+      detail:"Verify NMP cradle is plugged in, powered on, and docking interface is clear" },
+    { id:"sterile",  label:"Sterile receiving field is prepared",
+      detail:"Sterile drapes, instruments, and organ basin confirmed in position" },
+    { id:"ischemic", label:"Ischemic time window reviewed and within tolerance",
+      detail:`${mission.envProfile} · ${mission.priority} · Confirm remaining ischemic window is within surgical tolerance` },
+    { id:"surgeon",  label:"Receiving surgeon notified of ETA and organ status",
+      detail:"Surgeon has confirmed readiness and is aware of current telemetry status" },
+  ];
+  const [checked, setChecked] = useState({});
+  const allDone = ITEMS.every(i => checked[i.id]);
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        <Back onClick={onBack}/>
+        <div>
+          <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Pre-Arrival Checklist</div>
+          <div style={{ fontSize:10, color:T.gold, marginTop:1 }}>{ITEMS.filter(i => checked[i.id]).length} of {ITEMS.length} confirmed</div>
+        </div>
+      </div>
+      <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:10 }}>
+        <div style={{ padding:"11px 13px", background:T.goldD, border:`1px solid ${T.gold}22`, borderRadius:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.gold }}>⚠ Required before scan-out is enabled</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:3, lineHeight:1.6 }}>
+            Aircraft has landed at {mission.destination}. Complete all items to unlock scan-out.
+          </div>
+        </div>
+        {ITEMS.map(item => {
+          const done = checked[item.id];
+          return (
+            <div
+              key={item.id}
+              onClick={() => setChecked(p => ({ ...p, [item.id]:!p[item.id] }))}
+              style={{ padding:"13px 14px", borderRadius:14, border:`1.5px solid ${done?T.green+"35":T.border}`, background:done?`${T.green}07`:T.card, cursor:"pointer", display:"flex", gap:12, alignItems:"flex-start" }}
+            >
+              <div style={{ width:22, height:22, borderRadius:7, border:`2px solid ${done?T.green:"rgba(255,255,255,0.14)"}`, background:done?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1, transition:"all .2s" }}>
+                {done && (
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                    <path d="M1 4l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:12, fontWeight:done?700:500, color:done?"#6ee7b7":T.text, lineHeight:1.4 }}>{item.label}</div>
+                <div style={{ fontSize:10, color:T.sub, marginTop:3, lineHeight:1.5 }}>{item.detail}</div>
+              </div>
+            </div>
+          );
+        })}
+        <Btn onClick={onComplete} color={allDone?T.green:T.sub} full disabled={!allDone}>
+          {allDone ? "✓ Checklist Complete — Proceed to Scan-Out →" : `${ITEMS.length-Object.values(checked).filter(Boolean).length} items remaining`}
+        </Btn>
+        <div style={{ fontSize:10, color:T.faint, textAlign:"center", lineHeight:1.6 }}>
+          All responses logged with handler credentials and timestamp.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ANOMALY REPORT ───────────────────────────────────────────
+
+function AnomalyReport({ mission, onSubmit, onClose }) {
+  const [type,  setType]  = useState("");
+  const [notes, setNotes] = useState("");
+  const [sent,  setSent]  = useState(false);
+
+  const TYPES = [
+    { id:"temp",   label:"Temperature Deviation",  icon:"🌡", desc:"Pod temp outside profile range" },
+    { id:"seal",   label:"Seal Integrity Concern", icon:"🔒", desc:"Visible damage or concern with seal" },
+    { id:"shock",  label:"Physical Shock Event",   icon:"⚡", desc:"Impact or rough handling detected" },
+    { id:"signal", label:"Signal / Comms Loss",    icon:"📡", desc:"Extended communication interruption" },
+    { id:"other",  label:"Other Anomaly",           icon:"⚠️", desc:"Any other concern requiring ROC attention" },
+  ];
+
+  if (sent) {
+    return (
+      <div style={{ padding:"36px 18px", display:"flex", flexDirection:"column", alignItems:"center", gap:16, animation:"fadeUp .3s ease" }}>
+        <div style={{ width:66, height:66, borderRadius:"50%", background:T.orangeD, border:`2px solid ${T.orange}35`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontSize:28 }}>📡</span>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:15, fontWeight:800, color:T.orange, fontFamily:"'Syne',sans-serif" }}>Anomaly Reported</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:3, lineHeight:1.6 }}>Atlas ROC has been notified and is reviewing {mission.id}.</div>
+        </div>
+        <Btn onClick={onClose} color={T.orange} outline full sm>Close</Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        <Back onClick={onClose}/>
+        <div style={{ fontSize:14, fontWeight:800, color:T.red, fontFamily:"'Syne',sans-serif" }}>Report Pod Anomaly</div>
+      </div>
+      <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:11 }}>
+        <div style={{ padding:"10px 12px", background:T.redD, border:`1px solid ${T.red}18`, borderRadius:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.red }}>⚠ Notifies Atlas ROC immediately</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>Mission: {mission.id} · All reports logged</div>
+        </div>
+        {TYPES.map(t => (
+          <div
+            key={t.id}
+            onClick={() => setType(t.id)}
+            style={{ padding:"11px 13px", borderRadius:13, border:`1.5px solid ${type===t.id?T.red+"40":T.border}`, background:type===t.id?T.redD:T.card, cursor:"pointer", display:"flex", alignItems:"center", gap:11 }}
+          >
+            <div style={{ width:34, height:34, borderRadius:10, background:`${T.red}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{t.icon}</div>
+            <div>
+              <div style={{ fontSize:12, fontWeight:type===t.id?700:500, color:type===t.id?T.red:T.text }}>{t.label}</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:1 }}>{t.desc}</div>
+            </div>
+          </div>
+        ))}
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Describe what you observed (no patient data)…"
+          style={{ width:"100%", height:68, padding:"9px 12px", borderRadius:12, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontSize:11, fontFamily:"'DM Sans',sans-serif", resize:"none", outline:"none" }}
+        />
+        <Btn
+          onClick={() => {
+            if (!type) return;
+            onSubmit({ type, notes, time:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}) });
+            setSent(true);
+          }}
+          color={T.red} full disabled={!type} sm
+        >
+          Report to ROC →
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─── CUSTODY CERTIFICATE ──────────────────────────────────────
+
+function CustodyCert({ mission, custodyLog, onBack }) {
+  const TC = { success:T.green, secure:T.sky, info:T.sub, warning:T.orange, critical:T.red };
+  const TI = { success:"✓", secure:"🔐", info:"ℹ", warning:"⚠", critical:"!" };
+  const timeline = [
+    mission.sealedAt    && { time:mission.sealedAt,    event:"Pod sealed at origin — QR/RFID scan",  actor:"Handler Webb", type:"secure"  },
+    mission.departedAt  && { time:mission.departedAt,  event:"Aircraft departed origin",              actor:"Atlas-04",     type:"info"    },
+    mission.arrivedAt   && { time:mission.arrivedAt,   event:"Aircraft landed at destination",        actor:"Atlas-04",     type:"success" },
+    mission.deliveredAt && { time:mission.deliveredAt, event:"Cargo released — scan-out confirmed",   actor:"Handler Webb", type:"success" },
+  ].filter(Boolean);
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        <Back onClick={onBack}/>
+        <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Custody Certificate</div>
+      </div>
+      <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ padding:"14px 15px", background:`${T.green}08`, border:`1.5px solid ${T.green}25`, borderRadius:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+            <div>
+              <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".12em", marginBottom:3 }}>Chain of Custody Record</div>
+              <Mono color={T.text} size={16}>{mission.id}</Mono>
+            </div>
+            <Pill color={T.green}>Complete ✓</Pill>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {[
+              ["Origin",mission.origin], ["Destination",mission.destination],
+              ["Priority",mission.priority], ["Pod",mission.pod],
+              ["Aircraft",mission.aircraft], ["Env Profile",mission.envProfile],
+              ["Sealed",mission.sealedAt||"—"], ["Delivered",mission.deliveredAt||"—"],
+            ].map(([l,v]) => (
+              <div key={l}>
+                <div style={{ fontSize:8.5, color:T.sub }}>{l}</div>
+                <div style={{ fontSize:11, fontWeight:600, color:T.text, marginTop:2 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <Card p="12px 13px">
+          <SLab>Environmental Record</SLab>
+          <TR label="Peak Temperature" value={`${mission.temp.toFixed(1)}°C`} ok={mission.tempOk} warn={!mission.tempOk} mono/>
+          <TR label="Profile"          value={mission.envProfile} ok/>
+          <TR label="Seal Integrity"   value="Intact throughout" ok/>
+          <TR label="Shock Events"     value={mission.shock?"Detected":"None"} ok={!mission.shock}/>
+          <TR label="Anomaly Reports"  value={mission.anomalies?.length>0?`${mission.anomalies.length} logged`:"None"} ok={!mission.anomalies?.length}/>
+        </Card>
+        <div>
+          <SLab>Custody Event Timeline</SLab>
+          {timeline.map((e, i) => {
+            const c = TC[e.type] || T.sub;
+            return (
+              <div key={i} style={{ display:"flex", gap:11, paddingBottom:i<timeline.length-1?12:0 }}>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+                  <div style={{ width:26, height:26, borderRadius:"50%", background:`${c}14`, border:`1.5px solid ${c}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, flexShrink:0 }}>
+                    {TI[e.type]||"•"}
+                  </div>
+                  {i < timeline.length-1 && <div style={{ flex:1, width:1, background:T.border, margin:"3px 0" }}/>}
+                </div>
+                <div style={{ flex:1, paddingTop:3, paddingBottom:i<timeline.length-1?12:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{e.event}</div>
+                  <div style={{ display:"flex", gap:7, marginTop:3 }}>
+                    <Mono color={T.faint} size={9}>{e.time}</Mono>
+                    <span style={{ color:T.faint }}>·</span>
+                    <Mono color={T.faint} size={9}>{e.actor}</Mono>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding:"10px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:11 }}>
+          <div style={{ fontSize:9, color:T.faint, lineHeight:1.7 }}>
+            Generated by Atlas Mission Operations System · All events cryptographically logged · Mission ID: {mission.id} · {new Date().toLocaleString()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ALERTS SCREEN ────────────────────────────────────────────
+
+function AlertsScreen({ notifications, onRead, onReadAll, onTapArrival }) {
+  const unread = notifications.filter(n => !n.read).length;
+  const IC = { sealed:"📦", transit:"✈️", approaching:"⚠️", arriving:"📍", landing:"🛬", landed:"✅", delivered:"✅", alert:"⚠️", accepted:"✅", anomaly:"🚨", assigned:"🚀" };
+  const CL = { sealed:T.orange, transit:T.sky, approaching:T.gold, arriving:T.sky, landing:T.gold, landed:T.green, delivered:T.green, alert:T.red, accepted:T.green, anomaly:T.red, assigned:T.purple };
+
+  return (
+    <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:8 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+        <SLab>{unread>0?`${unread} Unread`:"All Caught Up"}</SLab>
+        {unread>0 && <button onClick={onReadAll} style={{ fontSize:10, color:T.sub, background:"none", border:"none", cursor:"pointer" }}>Mark all read</button>}
+      </div>
+      {notifications.length===0 && (
+        <div style={{ textAlign:"center", padding:"30px 0", color:T.faint }}>
+          <div style={{ fontSize:26, marginBottom:8 }}>🔔</div>
+          <div style={{ fontSize:12 }}>No notifications yet</div>
+        </div>
+      )}
+      {notifications.map(n => {
+        const isU = !n.read;
+        const c = CL[n.type] || T.sky;
+        return (
+          <div
+            key={n.id}
+            onClick={() => {
+              onRead(n.id);
+              if (["approaching","landing","landed"].includes(n.type)) onTapArrival();
+            }}
+            style={{ background:isU?`${c}08`:T.card, border:`1px solid ${isU?`${c}18`:T.border}`, borderRadius:14, padding:"11px 13px", cursor:"pointer" }}
+          >
+            <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+              <div style={{ width:34, height:34, borderRadius:10, background:`${c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:16 }}>
+                {IC[n.type]||"🔔"}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                  <div style={{ fontSize:12, fontWeight:isU?700:500, color:isU?T.text:T.sub }}>{n.title}</div>
+                  {isU && <div style={{ width:7, height:7, borderRadius:"50%", background:c, flexShrink:0, marginTop:2 }}/>}
+                </div>
+                <div style={{ fontSize:11, color:T.sub, marginTop:2, lineHeight:1.5 }}>{n.body}</div>
+                {n.type==="approaching" && <div style={{ fontSize:10, fontWeight:700, color:T.gold, marginTop:4 }}>⚠️ Please have staff at the receiving location now</div>}
+                {n.type==="landed"      && <div style={{ fontSize:10, fontWeight:700, color:T.green, marginTop:4 }}>✅ Aircraft stopped · Complete checklist then scan out</div>}
+                {n.type==="assigned"    && <div style={{ fontSize:10, fontWeight:700, color:T.purple, marginTop:4 }}>🚀 Mission is now active — handler will scan in</div>}
+                <Mono color={T.faint} size={9}>{n.time}</Mono>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── HISTORY SCREEN ───────────────────────────────────────────
+
+function HistoryScreen({ history, custodyLog, onRepeat }) {
+  const [active, setActive] = useState("deliveries");
+  const TC = { success:T.green, secure:T.sky, info:T.sub, warning:T.orange, critical:T.red };
+  const TI = { success:"✓", secure:"🔐", info:"ℹ", warning:"⚠", critical:"!" };
+
+  return (
+    <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:12 }}>
+      <div style={{ display:"flex", background:T.card, borderRadius:11, padding:2, gap:2 }}>
+        {[["deliveries","Deliveries"],["custody","Custody Log"]].map(([k,l]) => (
+          <button key={k} onClick={() => setActive(k)} style={{ flex:1, padding:"7px", borderRadius:9, border:"none", background:active===k?"rgba(255,255,255,0.08)":"transparent", color:active===k?T.text:T.sub, fontSize:11, fontWeight:active===k?700:400, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {active==="deliveries" && history.map(h => {
+        const pr = PR[h.priority];
+        return (
+          <Card key={h.id} p="13px 14px">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+              <div>
+                <Mono color={T.sub} size={9}>{h.id}</Mono>
+                <div style={{ fontSize:13, fontWeight:700, color:T.text, marginTop:2 }}>{h.origin.split(" ")[0]} → {h.destination.split(" ")[0]}</div>
+              </div>
+              <Pill color={T.green}>Delivered</Pill>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+              {[["Priority",<Pill color={pr.color} sm>{h.priority}</Pill>],["Duration",h.duration],["Seal",h.sealOk?"Intact ✓":"⚠ Issue"]].map(([l,v]) => (
+                <div key={l}>
+                  <div style={{ fontSize:9, color:T.sub, marginBottom:3 }}>{l}</div>
+                  <div style={{ fontSize:11, fontWeight:600, color:T.text }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom:8, fontSize:10, color:T.faint }}>{h.deliveredAt}</div>
+            <Btn onClick={() => onRepeat(h)} color={T.purple} outline full sm>↩ Repeat This Request</Btn>
+          </Card>
+        );
+      })}
+
+      {active==="custody" && custodyLog.map((e, i) => {
+        const c = TC[e.type] || T.sub;
+        return (
+          <div key={i} style={{ display:"flex", gap:11, paddingBottom:i<custodyLog.length-1?12:0 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+              <div style={{ width:26, height:26, borderRadius:"50%", background:`${c}14`, border:`1.5px solid ${c}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, flexShrink:0 }}>
+                {TI[e.type]||"•"}
+              </div>
+              {i < custodyLog.length-1 && <div style={{ flex:1, width:1, background:T.border, margin:"3px 0" }}/>}
+            </div>
+            <div style={{ flex:1, paddingTop:3, paddingBottom:i<custodyLog.length-1?12:0 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:T.text, lineHeight:1.4 }}>{e.event}</div>
+              <div style={{ display:"flex", gap:7, marginTop:3, flexWrap:"wrap" }}>
+                <Mono color={T.faint} size={9}>{e.mission}</Mono>
+                <span style={{ color:T.faint }}>·</span>
+                <Mono color={T.faint} size={9}>{e.time}</Mono>
+                <span style={{ color:T.faint }}>·</span>
+                <Mono color={T.faint} size={9}>{e.actor}</Mono>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── REQUEST SCREEN ───────────────────────────────────────────
+
+function RequestScreen({ onSubmit, lastRequest }) {
+  const [form, setForm] = useState(
+    lastRequest
+      ? { from:lastRequest.from, to:lastRequest.to, priority:lastRequest.priority, payload:lastRequest.payload, notes:"" }
+      : { from:"Lakeland Regional", to:"Tampa General", priority:"Class B", payload:"Living Organ — Normothermic Perfusion Console", notes:"" }
+  );
+  const [submitted, setSubmitted] = useState(null);
+
+  if (submitted) {
+    return (
+      <div style={{ padding:"40px 20px", display:"flex", flexDirection:"column", alignItems:"center", gap:16, animation:"fadeUp .4s ease" }}>
+        <div style={{ width:68, height:68, borderRadius:"50%", background:T.greenD, border:`2px solid ${T.green}35`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <svg width="26" height="20" viewBox="0 0 26 20" fill="none"><path d="M2 10l7 7L24 2" stroke={T.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:16, fontWeight:800, color:T.green, fontFamily:"'Syne',sans-serif" }}>Request Submitted</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:4, lineHeight:1.6 }}>MSO will assign aircraft and pod · You'll be notified when dispatched</div>
+        </div>
+        <Card style={{ width:"100%" }} p="13px 14px">
+          <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".12em" }}>Request ID</div>
+          <Mono color={T.text} size={18}>{submitted}</Mono>
+        </Card>
+        <Btn onClick={() => setSubmitted(null)} color={T.green} full sm>New Request</Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:11 }}>
+      {lastRequest && (
+        <div style={{ padding:"10px 12px", background:`${T.purple}09`, border:`1px solid ${T.purple}20`, borderRadius:12, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:10, fontWeight:700, color:T.purple }}>↩ Last request pre-filled</div>
+            <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>{lastRequest.from?.split(" ")[0]} → {lastRequest.to?.split(" ")[0]} · {lastRequest.priority}</div>
+          </div>
+          <button onClick={() => setForm({ from:"Lakeland Regional", to:"Tampa General", priority:"Class B", payload:"Living Organ — Normothermic Perfusion Console", notes:"" })} style={{ fontSize:9, color:T.sub, background:"none", border:"none", cursor:"pointer" }}>Clear</button>
+        </div>
+      )}
+      <div style={{ padding:"10px 12px", background:T.skyD, border:`1px solid ${T.sky}18`, borderRadius:12 }}>
+        <div style={{ fontSize:9, fontWeight:700, color:T.sky }}>🔒 Privacy-First Platform</div>
+        <div style={{ fontSize:10, color:T.sub, marginTop:3, lineHeight:1.6 }}>Do not include patient names. Atlas identifies shipments by Mission ID and payload class only.</div>
+      </div>
+      {[["Origin Site","from",["Tampa General","Lakeland Regional","Orlando Health","AdventHealth Orlando","UF Health Jacksonville","Moffitt Cancer Center"]],["Destination Site","to",["Tampa General","Lakeland Regional","Orlando Health","AdventHealth Orlando","UF Health Jacksonville","Moffitt Cancer Center"]]].map(([label,key,opts]) => (
+        <div key={key}>
+          <div style={{ fontSize:10, fontWeight:600, color:T.sub, textTransform:"uppercase", letterSpacing:".1em", marginBottom:5 }}>{label}</div>
+          <select value={form[key]} onChange={e => setForm(f => ({...f,[key]:e.target.value}))} style={{ width:"100%", padding:"10px 12px", borderRadius:12, fontSize:12, background:T.card, border:`1px solid ${T.border}`, color:T.text, outline:"none", fontFamily:"'DM Sans',sans-serif" }}>
+            {opts.map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+      ))}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {[["Priority","priority",["Class A","Class B","Class C"]],["Payload","payload",["Living Organ — Normothermic Perfusion Console","Specimen","Blood Product","Pharmaceutical","Tissue"]]].map(([label,key,opts]) => (
+          <div key={key}>
+            <div style={{ fontSize:10, fontWeight:600, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", marginBottom:5 }}>{label}</div>
+            <select value={form[key]} onChange={e => setForm(f => ({...f,[key]:e.target.value}))} style={{ width:"100%", padding:"9px 10px", borderRadius:12, fontSize:11, background:T.card, border:`1px solid ${T.border}`, color:T.text, outline:"none", fontFamily:"'DM Sans',sans-serif" }}>
+              {opts.map(o => <option key={o}>{o}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={{ fontSize:10, fontWeight:600, color:T.sub, textTransform:"uppercase", letterSpacing:".1em", marginBottom:5 }}>Handling Notes (no patient data)</div>
+        <textarea value={form.notes} onChange={e => setForm(f => ({...f,notes:e.target.value}))} placeholder="e.g. Keep upright · Temperature critical · Fragile" style={{ width:"100%", height:60, padding:"9px 12px", borderRadius:12, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontSize:11, fontFamily:"'DM Sans',sans-serif", resize:"none", outline:"none" }}/>
+      </div>
+      <Btn onClick={() => { const id=`REQ-${String(Math.floor(Math.random()*900)+100)}`; onSubmit(id,form); setSubmitted(id); }} color={T.sky} full sm>
+        Submit to Atlas Dispatch →
+      </Btn>
+    </div>
+  );
+}
+
+// ─── MISSION DETAIL (customer) ────────────────────────────────
+
+function MissionDetail({ mission, custodyLog, onBack, onSwitchToHandler, onReportAnomaly }) {
+  const [showAnomaly, setShowAnomaly] = useState(false);
+  const [showCert,    setShowCert]    = useState(false);
+  const ph    = mission.phase;
+  const phCfg = PH[ph] || PH.idle;
+  const live  = ["in_transit","arriving","landing"].includes(ph);
+
+  if (showCert)    return <CustodyCert mission={mission} custodyLog={custodyLog} onBack={() => setShowCert(false)}/>;
+  if (showAnomaly) return <AnomalyReport mission={mission} onSubmit={r => { onReportAnomaly(r); setShowAnomaly(false); }} onClose={() => setShowAnomaly(false)}/>;
+
+  return (
+    <div>
+      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+        <Back onClick={onBack}/>
+        <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Tracking</div>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5 }}>
+          <Dot color={phCfg.dot} pulse={live} size={6}/>
+          <Pill color={phCfg.color}>{phCfg.label}</Pill>
+        </div>
+      </div>
+      <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+          <div>
+            <Mono color={T.sub} size={9}>{mission.id}</Mono>
+            <div style={{ fontSize:15, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif", marginTop:2 }}>
+              {mission.origin.split(" ")[0]} → {mission.destination.split(" ")[0]}
+            </div>
+          </div>
+          {live && (
+            <button onClick={() => setShowAnomaly(true)} style={{ padding:"5px 10px", borderRadius:9, border:`1px solid ${T.red}30`, background:T.redD, color:T.red, fontSize:9.5, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+              ⚠ Report
+            </button>
+          )}
+        </div>
+        <LiveMap progress={mission.progress} phase={ph}/>
+        {live && (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+            {[{l:"ETA",v:`${Math.round(mission.eta||0)} min`,c:T.gold},{l:"Progress",v:`${Math.round(mission.progress)}%`,c:T.sky},{l:"Distance",v:`${mission.distanceNM} NM`,c:T.sub}].map(({ l,v,c }) => (
+              <Card key={l} p="9px 11px">
+                <div style={{ fontSize:9, color:T.sub, marginBottom:3 }}>{l}</div>
+                <Mono color={c} size={13}>{v}</Mono>
+              </Card>
+            ))}
+          </div>
+        )}
+        {(ph==="arriving" || ph==="landing") && (
+          <div style={{ padding:"12px 14px", background:T.skyD, border:`1.5px solid ${T.sky}22`, borderRadius:14, display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:22 }}>{ph==="landing"?"🛬":"✈️"}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:T.sky }}>{ph==="landing"?"Aircraft Landing…":"Approaching Destination"}</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>Stand by — scan-out enabled once aircraft confirms on ground.</div>
+            </div>
+          </div>
+        )}
+        {ph==="landed" && (
+          <div onClick={onSwitchToHandler} style={{ padding:"12px 14px", background:`${T.green}0a`, border:`1.5px solid ${T.green}30`, borderRadius:14, cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:22 }}>✅</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:T.green }}>Aircraft Has Landed — Scan Out Ready</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>Tap → Handler scan-out screen</div>
+            </div>
+            <span style={{ fontSize:16, color:T.green }}>›</span>
+          </div>
+        )}
+        {ph==="delivered" && (
+          <Btn onClick={() => setShowCert(true)} color={T.green} full sm>📋 View Custody Certificate</Btn>
+        )}
+        <TelPanel m={mission}/>
+      </div>
+    </div>
+  );
+}
+
+// ─── CUSTOMER HOME ────────────────────────────────────────────
+
+function CustomerHome({ mission, queued, custodyLog, onSwitchToHandler, onSubmit, onCancel, onRepeat, lastRequest }) {
+  const [selected,  setSelected]  = useState(null);
+  const [showReq,   setShowReq]   = useState(false);
+  const ph      = mission.phase;
+  const hasActive = ph !== "idle";
+  const phCfg   = PH[ph] || PH.idle;
+
+  const handleReportAnomaly = useCallback(() => {}, []);
+
+  if (selected) {
+    return (
+      <MissionDetail
+        mission={selected}
+        custodyLog={custodyLog}
+        onBack={() => setSelected(null)}
+        onSwitchToHandler={onSwitchToHandler}
+        onReportAnomaly={handleReportAnomaly}
+      />
+    );
+  }
+
+  if (showReq || (!hasActive && queued.length === 0)) {
+    return (
+      <div>
+        {(hasActive || queued.length > 0)
+          ? (
+            <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center" }}>
+              <Back onClick={() => setShowReq(false)}/>
+              <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>New Request</div>
+            </div>
+          ) : (
+            <div style={{ padding:"16px 16px 8px" }}>
+              <div style={{ fontSize:18, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Request a Shipment</div>
+              <div style={{ fontSize:11, color:T.sub, marginTop:2 }}>No active missions · Submit a new request below</div>
+            </div>
+          )
+        }
+        <RequestScreen onSubmit={(id, form) => { onSubmit(id, form); setShowReq(false); }} lastRequest={lastRequest}/>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:13 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={{ fontSize:18, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif", letterSpacing:"-.02em" }}>My Missions</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:1 }}>{(hasActive?1:0)+queued.length} total · tap to track</div>
+        </div>
+        <Btn onClick={() => setShowReq(true)} color={T.sky} outline sm>+ New</Btn>
+      </div>
+
+      {hasActive && (
+        <div onClick={() => setSelected(mission)} style={{ background:T.card, border:`1px solid ${phCfg.color}22`, borderRadius:16, padding:"14px 15px", cursor:"pointer" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+            <div>
+              <Mono color={T.sub} size={9}>{mission.id}</Mono>
+              <div style={{ fontSize:14, fontWeight:800, color:T.text, marginTop:2 }}>{mission.origin.split(" ")[0]} → {mission.destination.split(" ")[0]}</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>{mission.pod} · {mission.priority}</div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                <Dot color={phCfg.dot} pulse={["in_transit","arriving","landing"].includes(ph)} size={6}/>
+                <Pill color={phCfg.color}>{phCfg.label}</Pill>
+              </div>
+              {mission.eta && <Mono color={T.gold} size={10}>{Math.round(mission.eta)} min</Mono>}
+            </div>
+          </div>
+          <PBar pct={ph==="idle"?0:["sealed","loaded","scanning_in"].includes(ph)?12:ph==="in_transit"?mission.progress:["arriving","landing"].includes(ph)?95:100} color={phCfg.color} h={3}/>
+          {mission.ischemicWindowMin && ph!=="delivered" && (
+            <div style={{ marginTop:8, padding:"8px 11px", background:`${T.red}0c`, border:`1px solid ${T.red}25`, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:10, fontWeight:700, color:T.red }}>⏱ Ischemic Window</div>
+              <Mono color={T.red} size={10}>{mission.ischemicWindowMin} min remaining</Mono>
+            </div>
+          )}
+          {ph==="landed" && (
+            <div style={{ marginTop:10, padding:"9px 11px", background:`${T.green}0a`, border:`1px solid ${T.green}22`, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:T.green }}>✅ Aircraft Landed — Scan out ready</div>
+              <span style={{ fontSize:13, color:T.green }}>›</span>
+            </div>
+          )}
+          {ph==="delivered" && (
+            <div style={{ marginTop:10, padding:"9px 11px", background:T.greenD, border:`1px solid ${T.green}20`, borderRadius:10 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:T.green }}>✓ Delivered · Tap for custody certificate</div>
+            </div>
+          )}
+          <div style={{ marginTop:10, fontSize:10, color:T.faint, textAlign:"right" }}>Tap to track →</div>
+        </div>
+      )}
+
+      {queued.length > 0 && (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <SLab>Queued Requests</SLab>
+          {queued.map(q => {
+            const pr = PR[q.priority] || PR["Class B"];
+            return (
+              <div key={q.id} style={{ background:T.card, border:`1px solid ${q.status==="assigned"?T.purple+"28":T.border}`, borderRadius:14, padding:"12px 14px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                  <div>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3 }}>
+                      <Mono color={T.faint} size={9}>{q.id}</Mono>
+                      <Pill color={q.status==="assigned"?T.purple:T.sub} sm>{q.status==="assigned"?"Assigned":"Queued"}</Pill>
+                      <Pill color={pr.color} sm>{q.priority}</Pill>
+                    </div>
+                    <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{(q.from||"").split(" ")[0]} → {(q.to||"").split(" ")[0]}</div>
+                    <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>{q.payload} · Submitted {q.requestedAt}</div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                    {q.status==="assigned"
+                      ? <div style={{ width:32, height:32, borderRadius:"50%", background:`${T.purple}14`, border:`1px solid ${T.purple}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>🚀</div>
+                      : <div style={{ width:32, height:32, borderRadius:"50%", background:`${T.sub}10`, border:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}><Spin color={T.sub} size={14}/></div>
+                    }
+                    <div style={{ fontSize:8.5, color:T.faint }}>{q.status==="assigned"?"Dispatched":"Pending"}</div>
+                  </div>
+                </div>
+                {q.status==="queued" && (
+                  <div style={{ display:"flex", gap:8 }}>
+                    <Btn onClick={() => onRepeat(q)} color={T.purple} outline full sm>✏ Modify</Btn>
+                    <button onClick={() => onCancel(q.id)} style={{ padding:"7px 14px", borderRadius:11, border:`1px solid ${T.red}28`, background:T.redD, color:T.red, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>✕ Cancel</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ padding:"9px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:11 }}>
+        <div style={{ fontSize:9, fontWeight:700, color:T.sky }}>🔒 No patient data collected · Mission ID only</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── HANDLER HOME ─────────────────────────────────────────────
+
+function HandlerHome({ mission, onMissionUpdate, onSwitchToCustomer, custodyLog, messages, onSendMessage }) {
+  const [sub,         setSub]         = useState("dashboard");
+  const [scanMethod,  setScanMethod]  = useState(null);
+  const [scanMode,    setScanMode]    = useState("in");
+  const [cargoOk,     setCargoOk]    = useState(false);
+  const [denied,      setDenied]      = useState(false);
+  const [deniedReason,setDeniedReason]= useState("qr");
+  const [checklistDone, setChecklistDone] = useState(false);
+  const [showAnomaly, setShowAnomaly] = useState(false);
+  const [msgText,     setMsgText]     = useState("");
+  const msgEnd = useRef(null);
+  useEffect(() => msgEnd.current?.scrollIntoView({ behavior:"smooth" }), [messages]);
+
+  const ph     = mission.phase;
+  const accent = T.orange;
+  const phCfg  = PH[ph] || PH.idle;
+  const canScanIn     = ph === "idle";
+  const canScanOut    = ph === "landed" && checklistDone;
+  const needsChecklist = ph === "landed" && !checklistDone;
+
+  const handleScanSuccess = () => {
+    setScanMethod(null);
+    if (scanMode === "in") {
+      onMissionUpdate({ phase:"loaded" });
+      setSub("loading");
+    } else {
+      onMissionUpdate({ phase:"delivered", deliveredAt:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}) });
+      setSub("complete");
+    }
+  };
+  const handleScanFail = (r) => { setScanMethod(null); setDeniedReason(r); setDenied(true); };
+  const startScan = (mode) => { setScanMode(mode); setScanMethod(null); setSub("scanMethod"); };
+
+  if (showAnomaly) {
+    return (
+      <AnomalyReport
+        mission={mission}
+        onSubmit={r => { onMissionUpdate({ anomaly:r }); setShowAnomaly(false); }}
+        onClose={() => setShowAnomaly(false)}
+      />
+    );
+  }
+
+  if (denied) {
+    return (
+      <div style={{ padding:"32px 16px", display:"flex", flexDirection:"column", alignItems:"center", gap:14, animation:"fadeUp .3s ease" }}>
+        <div style={{ width:62, height:62, borderRadius:"50%", background:T.redD, border:`2px solid ${T.red}35`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontSize:26 }}>🚫</span>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:15, fontWeight:800, color:T.red, fontFamily:"'Syne',sans-serif" }}>Access Denied</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>{deniedReason==="qr"?"QR mismatch":"RFID not recognized"} · ROC notified</div>
+        </div>
+        <Btn onClick={() => { setDenied(false); setSub("dashboard"); }} color={T.red} outline full sm>Return to Dashboard</Btn>
+      </div>
+    );
+  }
+
+  if (sub === "scanMethod") {
+    if (scanMethod === "qr")   return <QRScan   podId={mission.pod} qrData={mission.qrData}   mode={scanMode} accent={accent} onSuccess={handleScanSuccess} onFail={handleScanFail} onBack={() => setScanMethod(null)}/>;
+    if (scanMethod === "rfid") return <RFIDScan podId={mission.pod} rfidTag={mission.rfidTag} mode={scanMode} accent={accent} onSuccess={handleScanSuccess} onFail={handleScanFail} onBack={() => setScanMethod(null)}/>;
+    return <ScanChooser mode={scanMode} accent={accent} onQR={() => setScanMethod("qr")} onRFID={() => setScanMethod("rfid")} onBack={() => setSub("dashboard")}/>;
+  }
+
+  if (sub === "auth") {
+    return <AuthChecks accent={accent} onSuccess={() => setSub("loading")} onBack={() => setSub("scanMethod")}/>;
+  }
+
+  if (sub === "checklist") {
+    return <PreArrivalChecklist mission={mission} onComplete={() => { setChecklistDone(true); setSub("dashboard"); }} onBack={() => setSub("dashboard")}/>;
+  }
+
+  if (sub === "messaging") {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
+        <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+          <Back onClick={() => setSub("dashboard")}/>
+          <div>
+            <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>ROC Comms</div>
+            <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:2 }}>
+              <Dot color={T.green} pulse size={5}/>
+              <span style={{ fontSize:9, color:T.green, fontWeight:600 }}>Atlas ROC Online</span>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px 14px", display:"flex", flexDirection:"column", gap:10, scrollbarWidth:"none" }}>
+          {messages.map(m => (
+            <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:m.from==="ROC"?"flex-start":"flex-end", gap:3 }}>
+              <div style={{ fontSize:8.5, color:T.faint }}>{m.from==="ROC"?"Atlas ROC":"Handler Webb"} · {m.time}</div>
+              <div style={{ maxWidth:"82%", padding:"9px 12px", borderRadius:m.from==="ROC"?"4px 13px 13px 13px":"13px 4px 13px 13px", background:m.from==="ROC"?T.card:`${T.sky}18`, border:`1px solid ${m.from==="ROC"?T.border:`${T.sky}25`}` }}>
+                <div style={{ fontSize:12, color:T.text, lineHeight:1.6 }}>{m.text}</div>
+              </div>
+            </div>
+          ))}
+          <div ref={msgEnd}/>
+        </div>
+        <div style={{ padding:"10px 14px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, alignItems:"flex-end", flexShrink:0 }}>
+          <textarea value={msgText} onChange={e => setMsgText(e.target.value)} placeholder="Message ROC…" style={{ flex:1, padding:"9px 12px", borderRadius:12, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontSize:12, fontFamily:"'DM Sans',sans-serif", resize:"none", outline:"none", height:40, lineHeight:1.5 }}/>
+          <button onClick={() => { if (!msgText.trim()) return; onSendMessage(msgText.trim()); setMsgText(""); }} style={{ width:38, height:38, borderRadius:12, border:`1px solid ${T.sky}25`, background:`${T.sky}14`, color:T.sky, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke={T.sky} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sub === "loading") {
+    return (
+      <div>
+        <div style={{ padding:"10px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center" }}>
+          <div style={{ fontSize:14, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Load Cargo</div>
+        </div>
+        <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ padding:"13px 14px", background:`${T.green}0a`, border:`1px solid ${T.green}20`, borderRadius:14, display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:22 }}>🔓</span>
+            <div>
+              <div style={{ fontSize:12, fontWeight:800, color:T.green }}>{mission.pod} Unlocked</div>
+              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>Load cargo now · 10-min window</div>
+            </div>
+          </div>
+          <Card p="12px 13px">
+            <TR label="Pod"         value={mission.pod}         mono ok/>
+            <TR label="Mission"     value={mission.id}          mono ok/>
+            <TR label="Env Profile" value={mission.envProfile}  ok/>
+            <TR label="Destination" value={mission.destination} ok/>
+          </Card>
+          <div onClick={() => setCargoOk(!cargoOk)} style={{ display:"flex", alignItems:"flex-start", gap:11, padding:"11px 13px", background:`${T.green}07`, border:`1px solid ${T.green}14`, borderRadius:12, cursor:"pointer" }}>
+            <div style={{ width:20, height:20, borderRadius:6, border:`2px solid ${cargoOk?T.green:"rgba(255,255,255,0.14)"}`, background:cargoOk?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all .2s" }}>
+              {cargoOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5l2.5 2.5 4.5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+            <span style={{ fontSize:11, color:cargoOk?"#6ee7b7":T.sub, lineHeight:1.5 }}>Cargo placed correctly and ready for sealing</span>
+          </div>
+          <Btn
+            onClick={() => {
+              const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+              onMissionUpdate({ phase:"sealed", seal:true, sealedAt:now });
+              setSub("sealed");
+            }}
+            color={accent} full disabled={!cargoOk} sm
+          >
+            Seal Pod & Go Live →
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (sub === "sealed") {
+    return (
+      <div style={{ padding:"32px 16px", display:"flex", flexDirection:"column", alignItems:"center", gap:14, animation:"fadeUp .4s ease" }}>
+        <div style={{ width:68, height:68, borderRadius:"50%", background:`${accent}14`, border:`2px solid ${accent}38`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 0 36px ${accent}20` }}>
+          <span style={{ fontSize:28 }}>🔒</span>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:16, fontWeight:800, color:accent, fontFamily:"'Syne',sans-serif" }}>Pod Sealed — Mission Live</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:4, lineHeight:1.6 }}>Customer portal updated · Aircraft departing</div>
+        </div>
+        <Card style={{ width:"100%" }} p="12px 13px">
+          <TR label="Pod"     value={mission.pod}     mono ok/>
+          <TR label="Mission" value={mission.id}      mono ok/>
+          <TR label="Sealed"  value={mission.sealedAt||"Just now"} mono ok/>
+          <TR label="Seal"    value="Engaged" ok/>
+          <TR label="Custody" value="Atlas" ok/>
+        </Card>
+        <div style={{ padding:"10px 12px", background:T.skyD, border:`1px solid ${T.sky}18`, borderRadius:12, width:"100%" }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.sky }}>📲 Switch to Customer to see live tracking →</div>
+        </div>
+        <div style={{ display:"flex", gap:8, width:"100%" }}>
+          <Btn onClick={() => setSub("dashboard")} color={accent} outline full sm>Dashboard</Btn>
+          <Btn onClick={onSwitchToCustomer} color={T.sky} full sm>Customer Portal →</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (sub === "complete") {
+    return (
+      <div style={{ padding:"32px 16px", display:"flex", flexDirection:"column", alignItems:"center", gap:14, animation:"fadeUp .4s ease" }}>
+        <div style={{ width:68, height:68, borderRadius:"50%", background:T.greenD, border:`2px solid ${T.green}35`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 0 36px ${T.green}18` }}>
+          <span style={{ fontSize:28 }}>✅</span>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:16, fontWeight:800, color:T.green, fontFamily:"'Syne',sans-serif" }}>Delivery Complete</div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:4 }}>Chain of custody closed</div>
+        </div>
+        <Card style={{ width:"100%" }} p="12px 13px">
+          <TR label="Mission"  value={mission.id}          mono ok/>
+          <TR label="Pod"      value={mission.pod}         mono ok/>
+          <TR label="Seal"     value="Intact on arrival"   ok/>
+          <TR label="Delivered" value={mission.deliveredAt||"Now"} mono ok/>
+          <TR label="Mission Value" value={mission.priority==="Class A"?"$9,500":mission.priority==="Class C"?"$7,000":"$8,500"} mono ok/>
+        </Card>
+        <Btn onClick={() => setSub("dashboard")} color={T.green} full sm>Back to Dashboard →</Btn>
+      </div>
+    );
+  }
+
+  // ── Dashboard ──
+  const SI = (() => {
+    const order = ["idle","scanning_in","loaded","sealed","in_transit","arriving","landing","landed","scanning_out","delivered"];
+    const ci = order.indexOf(ph);
+    if (ci <= 0) return 0;
+    if (ci <= 3) return 1;
+    if (ci <= 4) return 2;
+    if (ci <= 7) return 3;
+    return 4;
+  })();
+
+  return (
+    <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:12 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={{ fontSize:10, color:accent, fontWeight:700, letterSpacing:".12em", textTransform:"uppercase", marginBottom:1 }}>Handler · Marcus Webb</div>
+          <div style={{ fontSize:18, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif", letterSpacing:"-.02em" }}>Mission Flow</div>
+        </div>
+        <div style={{ display:"flex", gap:7 }}>
+          {["in_transit","arriving","landing","landed"].includes(ph) && (
+            <button onClick={() => setShowAnomaly(true)} style={{ padding:"5px 9px", borderRadius:9, border:`1px solid ${T.red}28`, background:T.redD, color:T.red, fontSize:9.5, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+              ⚠ Anomaly
+            </button>
+          )}
+          <button onClick={() => setSub("messaging")} style={{ padding:"5px 9px", borderRadius:9, border:`1px solid ${T.purple}28`, background:T.purpleD, color:T.purple, fontSize:9.5, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+            💬 ROC
+          </button>
+        </div>
+      </div>
+
+      <Card accent={phCfg.color} p="14px 15px">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+          <div>
+            <Mono color={T.sub} size={9}>{mission.id}</Mono>
+            <div style={{ fontSize:14, fontWeight:800, color:T.text, marginTop:3 }}>{mission.origin.split(" ")[0]} → {mission.destination.split(" ")[0]}</div>
+            <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>{mission.pod} · {mission.priority}</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <Dot color={phCfg.dot} pulse={["in_transit","arriving"].includes(ph)} size={6}/>
+            <Pill color={phCfg.color}>{phCfg.label}</Pill>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", marginBottom:10 }}>
+          {[["Scan In","idle"],["Sealed","sealed"],["Transit","in_transit"],["Landed","landed"],["Done","delivered"]].map(([l, p], i, arr) => {
+            const done   = i < SI;
+            const active = i === SI;
+            return (
+              <div key={p} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative" }}>
+                {i < arr.length-1 && (
+                  <div style={{ position:"absolute", top:8, left:"55%", right:"-45%", height:1.5, background:done?phCfg.color:`${phCfg.color}20`, zIndex:0 }}/>
+                )}
+                <div style={{ width:18, height:18, borderRadius:"50%", background:done?phCfg.color:active?`${phCfg.color}20`:"rgba(255,255,255,0.05)", border:`1.5px solid ${done||active?phCfg.color:"rgba(255,255,255,0.08)"}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, position:"relative", zIndex:1 }}>
+                  {done && <svg width="7" height="5" viewBox="0 0 7 5" fill="none"><path d="M1 2.5l1.5 1.5 3.5-3.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  {active && <div style={{ width:5, height:5, borderRadius:"50%", background:phCfg.color }}/>}
+                </div>
+                <div style={{ fontSize:7.5, color:done||active?phCfg.color:T.faint, fontWeight:done||active?700:400 }}>{l}</div>
+              </div>
+            );
+          })}
+        </div>
+        <PBar pct={ph==="idle"?0:["sealed","loaded","scanning_in"].includes(ph)?15:ph==="in_transit"?mission.progress:["arriving","landing"].includes(ph)?95:100} color={phCfg.color} h={3}/>
+      </Card>
+
+      {canScanIn && (
+        <Btn onClick={() => startScan("in")} color={accent} full>📡  Scan Pod to Begin Mission →</Btn>
+      )}
+      {["in_transit","arriving","landing"].includes(ph) && (
+        <div style={{ padding:"11px 13px", background:T.skyD, border:`1px solid ${T.sky}18`, borderRadius:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.sky }}>
+            {ph==="landing" ? "🛬 Aircraft landing…" : ph==="arriving" ? "✈️ Aircraft approaching…" : "✈️ Mission in transit"}
+          </div>
+          <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>
+            {ph==="landing" ? "Stand by — checklist required once aircraft stops." : ph==="arriving" ? "Descending. Complete pre-arrival checklist once aircraft lands." : "Aircraft en route. You will be notified when it lands."}
+          </div>
+        </div>
+      )}
+      {needsChecklist && (
+        <div style={{ padding:"12px 14px", background:`${T.green}0a`, border:`1.5px solid ${T.green}28`, borderRadius:14 }}>
+          <div style={{ fontSize:12, fontWeight:800, color:T.green, marginBottom:4 }}>✅ Aircraft Has Landed</div>
+          <div style={{ fontSize:11, color:T.sub, marginBottom:10 }}>Complete the pre-arrival checklist before scan-out is enabled.</div>
+          <Btn onClick={() => setSub("checklist")} color={T.green} full sm>Complete Pre-Arrival Checklist →</Btn>
+        </div>
+      )}
+      {canScanOut && (
+        <div>
+          <div style={{ padding:"10px 12px", background:T.greenD, border:`1px solid ${T.green}18`, borderRadius:11, marginBottom:8 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:T.green }}>✓ Checklist complete · Scan-out enabled</div>
+          </div>
+          <Btn onClick={() => startScan("out")} color={T.gold} full>📡  Scan Pod to Release Cargo →</Btn>
+        </div>
+      )}
+      {["sealed","loading"].includes(ph) && (
+        <div style={{ padding:"11px 13px", background:`${accent}08`, border:`1px solid ${accent}18`, borderRadius:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:accent }}>🔒 Pod sealed · Aircraft preparing to depart</div>
+        </div>
+      )}
+      {ph==="delivered" && (
+        <div style={{ padding:"11px 13px", background:T.greenD, border:`1px solid ${T.green}18`, borderRadius:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.green }}>✅ Mission complete · Chain of custody closed</div>
+        </div>
+      )}
+      <div style={{ padding:"9px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:11 }}>
+        <div style={{ fontSize:9, fontWeight:700, color:T.sky }}>🔐 Scan-to-Access Active · No patient data collected</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN ────────────────────────────────────────────────────
+
+function LoginScreen({ onLogin, demoMode }) {
+  const [email,   setEmail]   = useState("");
+  const [pin,     setPin]     = useState("");
+  const [err,     setErr]     = useState("");
+  const [loading, setLoading] = useState(false);
+  const [step,    setStep]    = useState(0);
+  const pu = useRef(null);
+
+  const STEPS = ["Connecting to Atlas…","Verifying credentials…","Loading your profile…","Ready"];
+
+  useEffect(() => {
+    if (!loading) return;
+    if (step < STEPS.length-1) {
+      const t = setTimeout(() => setStep(s => s+1), 550);
+      return () => clearTimeout(t);
+    } else {
+      const t = setTimeout(() => onLogin(pu.current), 300);
+      return () => clearTimeout(t);
+    }
+  }, [loading, step]);
+
+  const go = (role) => {
+    const u = role ? USERS[role] : Object.values(USERS).find(u => u.email===email && u.pin===pin);
+    if (!u) { setErr("Invalid credentials."); return; }
+    pu.current = u;
+    setErr(""); setStep(0); setLoading(true);
+  };
+
+  if (loading) {
+    return (
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"36px 24px", gap:22 }}>
+        <div style={{ width:52, height:52, borderRadius:16, background:"linear-gradient(135deg,#f97316,#ea580c)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 8px 24px rgba(249,115,22,0.28)" }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </div>
+        <Spin color={T.sky} size={28}/>
+        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
+          {STEPS.map((s, i) => (
+            <div key={s} style={{ display:"flex", alignItems:"center", gap:9, opacity:i>step?0.2:1, transition:"opacity .3s" }}>
+              <div style={{ width:16, height:16, borderRadius:"50%", flexShrink:0, background:i<step?T.green:i===step?"rgba(255,255,255,0.08)":"transparent", border:i===step?`1.5px solid ${T.sky}`:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                {i < step && <svg width="7" height="5" viewBox="0 0 7 5" fill="none"><path d="M1 2.5l1.5 1.5 3.5-3.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                {i === step && <div style={{ width:4, height:4, borderRadius:"50%", background:T.sky }}/>}
+              </div>
+              <span style={{ fontSize:12, color:i<step?T.green:i===step?T.text:T.sub }}>{s}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", padding:"28px 20px", gap:0, overflowY:"auto", scrollbarWidth:"none" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:28, marginTop:8 }}>
+        <div style={{ width:56, height:56, borderRadius:18, background:"linear-gradient(135deg,#f97316,#ea580c)", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:12, boxShadow:"0 8px 24px rgba(249,115,22,0.28)" }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </div>
+        <div style={{ fontSize:22, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif", letterSpacing:"-.03em" }}>Atlas</div>
+        <div style={{ fontSize:11, color:T.sub, marginTop:2 }}>Medical Logistics Platform</div>
+      </div>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:11 }}>
+        {[
+          ["Work Email","email",email,setEmail,"text","you@hospital.org"],
+          ["PIN","pin",pin,setPin,"password","••••"],
+        ].map(([l, k, v, set, type, ph]) => (
+          <div key={k}>
+            <div style={{ fontSize:10, fontWeight:600, color:T.sub, textTransform:"uppercase", letterSpacing:".1em", marginBottom:5 }}>{l}</div>
+            <input
+              value={v}
+              onChange={e => { set(e.target.value); setErr(""); }}
+              type={type}
+              placeholder={ph}
+              maxLength={k==="pin"?4:undefined}
+              style={{ width:"100%", padding:"11px 13px", borderRadius:13, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontSize:k==="pin"?18:13, fontFamily:k==="pin"?"'JetBrains Mono',monospace":"'DM Sans',sans-serif", letterSpacing:k==="pin"?".3em":"normal", outline:"none" }}
+            />
+          </div>
+        ))}
+        {err && <div style={{ fontSize:11, color:T.red, textAlign:"center" }}>{err}</div>}
+        <Btn onClick={() => go()} color={T.sky} full>Sign In →</Btn>
+      </div>
+
+      {demoMode && (
+        <>
+          <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+            <div style={{ flex:1, height:1, background:T.border }}/>
+            <span style={{ fontSize:8.5, color:T.faint, textTransform:"uppercase", letterSpacing:".12em" }}>Demo Quick Login</span>
+            <div style={{ flex:1, height:1, background:T.border }}/>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {[
+              { role:"customer", label:"Hospital Staff",      sub:"Dr. Patel · Lakeland Regional",  icon:"🏥", color:T.sky    },
+              { role:"handler",  label:"Registered Handler",  sub:"Marcus Webb · Tampa General",    icon:"📦", color:T.orange },
+            ].map(({ role, label, sub, icon, color }) => (
+              <div key={role} onClick={() => go(role)} style={{ padding:"12px 14px", borderRadius:14, background:`${color}07`, border:`1.5px solid ${color}20`, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:38, height:38, borderRadius:11, background:`${color}14`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icon}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{label}</div>
+                  <div style={{ fontSize:10, color:T.sub, marginTop:1 }}>{sub}</div>
+                </div>
+                <span style={{ fontSize:15, color:T.sub }}>›</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div style={{ marginTop:"auto", textAlign:"center", paddingTop:20 }}>
+        <div style={{ fontSize:10, color:T.faint, lineHeight:1.7 }}>🔒 No patient data collected or stored<br/>All shipments identified by Mission ID only</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────
+
+export default function AtlasMobileV3() {
+  const [user,        setUser]        = useState(null);
+  const [activeRole,  setActiveRole]  = useState(null);
+  const [tab,         setTab]         = useState("home");
+  const [mission,     setMission]     = useState({ ...M0 });
+  const [queued,      setQueued]      = useState(Q0);
+  const [custodyLog,  setCustodyLog]  = useState(CUS0);
+  const [messages,    setMessages]    = useState(MSG0);
+  const [notifications, setNotifications] = useState([]);
+  const [showBanner,  setShowBanner]  = useState(false);
+  const [demoMode,    setDemoMode]    = useState(true);
+  const [lastRequest, setLastRequest] = useState(null);
+  const [history,     setHistory]     = useState(HIST0);
+  const approachFired = useRef(false);
+  const timerRef      = useRef(null);
+
+  // Bridge writes
+  useEffect(() => bW(BK.mission,  mission),    [mission]);
+  useEffect(() => bW(BK.queued,   queued),     [queued]);
+  useEffect(() => bW(BK.custody,  custodyLog), [custodyLog]);
+  useEffect(() => bW(BK.messages, messages),   [messages]);
+
+  // Bridge reads — poll for ROC changes
+  useEffect(() => {
+    const poll = setInterval(() => {
+      const bq = bR(BK.queued);
+      if (bq) {
+        setQueued(prev => {
+          const changed = bq.some((q, i) => prev[i] && prev[i].status !== q.status && q.status === "assigned");
+          if (changed) {
+            bq.forEach((q, i) => {
+              if (prev[i] && prev[i].status === "queued" && q.status === "assigned") {
+                pushN("assigned", "🚀 Request Assigned", "Your shipment request has been assigned to an aircraft. A handler will scan the pod to begin the mission.");
+              }
+            });
+            return bq;
+          }
+          return prev;
+        });
+      }
+      const bm = bR(BK.messages);
+      if (bm && bm.length > messages.length) setMessages(bm);
+    }, 500);
+    return () => clearInterval(poll);
+  }, [messages]);
+
+  const pushN = useCallback((type, title, body) => {
+    setNotifications(prev => [{
+      id:Date.now(), type, title, body,
+      time:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}),
+      read:false,
+    }, ...prev]);
+  }, []);
+
+  const handleMissionUpdate = useCallback((patch) => {
+    setMission(prev => {
+      const next = { ...prev, ...patch };
+      if (patch.phase && patch.phase !== prev.phase) {
+        const pid = prev.id;
+        if (patch.phase === "sealed") {
+          setTimeout(() => pushN("sealed", "📦 Arrived at Pickup — Mission Accepted", `Atlas aircraft has arrived at ${prev.origin} and collected your shipment. ${pid} is now in Atlas custody and preparing to depart.`), 200);
+          const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+          setCustodyLog(p => [
+            { time:now, event:"Pod sealed — custody transferred to Atlas", type:"secure", mission:pid, actor:"Handler Webb" },
+            { time:now, event:"Pod identity verified — QR/RFID scan", type:"info", mission:pid, actor:"Handler Webb" },
+            ...p,
+          ]);
+        }
+        if (patch.phase === "in_transit") {
+          setTimeout(() => pushN("transit", "✈️ Mission Accepted — Aircraft En Route", `${pid} has departed ${prev.origin} and is en route to ${prev.destination}. You will receive updates as the aircraft approaches.`), 200);
+        }
+        if (patch.phase === "delivered") {
+          setTimeout(() => pushN("delivered", "✅ Delivery Confirmed", `${pid} delivered · Chain of custody complete`), 200);
+          setShowBanner(false);
+          const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+          setCustodyLog(p => [
+            { time:now, event:"Delivery confirmed — pod released", type:"success", mission:pid, actor:"Handler Webb" },
+            { time:now, event:"Pod released via scan-out", type:"secure", mission:pid, actor:"Handler Webb" },
+            ...p,
+          ]);
+          setHistory(h => [{ id:pid, origin:prev.origin, destination:prev.destination, priority:prev.priority, deliveredAt:now, duration:"28 min", tempOk:prev.tempOk, sealOk:prev.seal }, ...h]);
+        }
+      }
+      if (patch.anomaly) {
+        next.anomalies = [...(prev.anomalies||[]), patch.anomaly];
+        setTimeout(() => pushN("anomaly", "⚠️ Pod Anomaly Reported", `${patch.anomaly.type} anomaly flagged for ${prev.id} · Atlas ROC notified`), 100);
+        const alerts = bR(BK.alerts) || [];
+        bW(BK.alerts, [{ id:Date.now(), time:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}), type:"critical", mission:prev.id, msg:`Mobile anomaly: ${patch.anomaly.type}${patch.anomaly.notes?" — "+patch.anomaly.notes.slice(0,50):""}`, acked:false }, ...alerts]);
+        delete next.anomaly;
+      }
+      return next;
+    });
+  }, [pushN]);
+
+  // Flight simulation
+  useEffect(() => {
+    const ph = mission.phase;
+    if (!["sealed","in_transit","arriving","landing"].includes(ph)) {
+      clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => {
+      setMission(prev => {
+        if (prev.phase === "sealed") {
+          return { ...prev, phase:"in_transit", alt:700, speed:65, eta:28, progress:3, departedAt:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}) };
+        }
+        if (prev.phase === "in_transit") {
+          const nP = Math.min(prev.progress+0.6, 87);
+          const nA = Math.min(prev.alt+10, 1400);
+          const nS = Math.min(prev.speed+0.3, 91);
+          const nE = Math.max(2, (prev.eta||28)-0.09);
+          if (nP >= 87) {
+            if (!approachFired.current) {
+              approachFired.current = true;
+              setTimeout(() => pushN("approaching", "⚠️ Aircraft Approaching — Action Required", `${prev.id} is approaching ${prev.destination} and will land shortly. Please ensure designated staff are at the designated receiving location now.`), 200);
+            }
+            return { ...prev, phase:"arriving", progress:87, alt:1200, speed:78, eta:4 };
+          }
+          return { ...prev, progress:nP, alt:nA, speed:Math.round(nS), eta:nE };
+        }
+        if (prev.phase === "arriving") {
+          const nP = Math.min(prev.progress+0.35, 97);
+          const nA = Math.max(prev.alt-55, 80);
+          const nS = Math.max(prev.speed-2, 22);
+          const nE = Math.max(0.5, (prev.eta||4)-0.12);
+          if (nP >= 97) return { ...prev, phase:"landing", progress:97, alt:40, speed:18, eta:0 };
+          return { ...prev, progress:nP, alt:Math.round(nA), speed:Math.round(nS), eta:nE };
+        }
+        if (prev.phase === "landing") {
+          const nA = Math.max(prev.alt-8, 0);
+          const nS = Math.max(prev.speed-3, 0);
+          if (nS <= 0) {
+            const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+            setTimeout(() => {
+              pushN("landed", "✅ Aircraft Has Landed", `${prev.id} on ground at ${prev.destination} · Aircraft confirmed stopped · Handler: complete pre-arrival checklist then scan out cargo.`);
+              setShowBanner(true);
+            }, 300);
+            return { ...prev, phase:"landed", progress:100, alt:0, speed:0, arrivedAt:now };
+          }
+          return { ...prev, alt:nA, speed:nS };
+        }
+        return prev;
+      });
+    }, 900);
+    return () => clearInterval(timerRef.current);
+  }, [mission.phase, pushN]);
+
+  useEffect(() => { if (mission.phase === "idle") approachFired.current = false; }, [mission.phase]);
+
+  const handleLogin    = useCallback(u => { setUser(u); setActiveRole(u.role); setTab("home"); }, []);
+  const handleLogout   = useCallback(()  => { setUser(null); setActiveRole(null); setTab("home"); }, []);
+  const switchRole     = useCallback(()  => setActiveRole(r => r==="customer"?"handler":"customer"), []);
+  const toHandler      = useCallback(()  => { setActiveRole("handler"); setShowBanner(false); setTab("home"); }, []);
+  const toCustomer     = useCallback(()  => { setActiveRole("customer"); setTab("home"); }, []);
+  const readN          = useCallback(id  => setNotifications(p => p.map(n => n.id===id?{...n,read:true}:n)), []);
+  const readAllN       = useCallback(()  => setNotifications(p => p.map(n => ({...n,read:true}))), []);
+  const cancelQueued   = useCallback(id  => setQueued(p => p.filter(q => q.id!==id)), []);
+  const repeatReq      = useCallback(item => setLastRequest({ from:item.from||item.origin, to:item.to||item.destination, priority:item.priority, payload:item.payload||"Living Organ — Normothermic Perfusion Console" }), []);
+
+  const handleSubmit = useCallback((id, form) => {
+    const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+    setQueued(p => [...p, { id, from:form.from, to:form.to, priority:form.priority, payload:form.payload, notes:form.notes||"", requestedAt:now, status:"queued" }]);
+    setLastRequest(form);
+    pushN("accepted", "Request Submitted", `${id} sent to Atlas Dispatch · Awaiting MSO assignment`);
+    setTab("home");
+  }, [pushN]);
+
+  const sendMsg = useCallback(text => {
+    const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+    const m = { id:Date.now(), from:"Handler", text, time:now, read:true };
+    setMessages(p => [...p, m]);
+    setTimeout(() => setMessages(p => [...p, { id:Date.now()+1, from:"ROC", text:"Received. ROC monitoring. Stand by.", time:new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}), read:false }]), 1800);
+  }, []);
+
+  const ph        = mission.phase;
+  const phCfg     = PH[ph] || PH.idle;
+  const unread    = notifications.filter(n => !n.read).length;
+  const glow      = activeRole==="handler" ? T.orange : T.sky;
+
+  const handlerTabs = [
+    { key:"home",    icon:"⊞", label:"Home" },
+    { key:"scan",    icon:"📡", label:"Scan" },
+    { key:"history", icon:"🗂", label:"History" },
+    { key:"alerts",  icon:"🔔", label:"Alerts", badge:unread },
+  ];
+  const customerTabs = [
+    { key:"home",    icon:"⊞", label:"Home" },
+    { key:"history", icon:"🗂", label:"History" },
+    { key:"alerts",  icon:"🔔", label:"Alerts", badge:unread },
+  ];
+  const tabs = activeRole==="handler" ? handlerTabs : customerTabs;
+
+  const renderContent = () => {
+    if (!user) return <LoginScreen onLogin={handleLogin} demoMode={demoMode}/>;
+    if (tab === "history") return <HistoryScreen history={history} custodyLog={custodyLog} onRepeat={repeatReq}/>;
+    if (tab === "alerts")  return <AlertsScreen notifications={notifications} onRead={readN} onReadAll={readAllN} onTapArrival={toHandler}/>;
+    if (activeRole === "handler") {
+      return <HandlerHome mission={mission} onMissionUpdate={handleMissionUpdate} onSwitchToCustomer={toCustomer} custodyLog={custodyLog} messages={messages} onSendMessage={sendMsg}/>;
+    }
+    return <CustomerHome mission={mission} queued={queued} custodyLog={custodyLog} onSwitchToHandler={toHandler} onSubmit={handleSubmit} onCancel={cancelQueued} onRepeat={repeatReq} lastRequest={lastRequest}/>;
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#020407", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"30px 20px 48px", fontFamily:"'DM Sans',sans-serif" }}>
+      <style>{`
+        ${GF}
+        * { box-sizing:border-box; margin:0; padding:0; }
+        @keyframes ping      { 75%,100%{ transform:scale(2.2); opacity:0; } }
+        @keyframes fadeUp    { from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:translateY(0); } }
+        @keyframes spin      { to{ transform:rotate(360deg); } }
+        @keyframes scanLine  { 0%{top:12%} 50%{top:80%} 100%{top:12%} }
+        @keyframes rfidRipple{ 0%{transform:scale(.4);opacity:.8} 100%{transform:scale(1.6);opacity:0} }
+        @keyframes slideDown { from{transform:translateY(-100%);opacity:0;} to{transform:translateY(0);opacity:1;} }
+        @keyframes roleSlide { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+        ::-webkit-scrollbar { display:none; }
+        select option { background:#0b101e; color:#e8edf5; }
+        input::placeholder, textarea::placeholder { color:#1a2235; }
+      `}</style>
+
+      {/* Page header */}
+      <div style={{ textAlign:"center", marginBottom:18 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:9, marginBottom:4 }}>
+          <div style={{ width:24, height:24, borderRadius:7, background:"linear-gradient(135deg,#f97316,#ea580c)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+          <span style={{ fontSize:15, fontWeight:900, color:"#e8edf5", letterSpacing:"-.03em", fontFamily:"'Syne',sans-serif" }}>Atlas Mobile v3</span>
+          <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:demoMode?"rgba(251,191,36,0.08)":"rgba(255,255,255,0.04)", borderRadius:99, border:`1px solid ${demoMode?"rgba(251,191,36,0.2)":"rgba(255,255,255,0.07)"}`, cursor:"pointer" }} onClick={() => setDemoMode(!demoMode)}>
+            <div style={{ width:20, height:11, borderRadius:99, background:demoMode?"rgba(251,191,36,0.2)":"rgba(255,255,255,0.07)", position:"relative" }}>
+              <div style={{ width:7, height:7, borderRadius:"50%", background:demoMode?"#fbbf24":"#334155", position:"absolute", top:2, left:demoMode?11:2, transition:"left .2s" }}/>
+            </div>
+            <span style={{ fontSize:8, fontWeight:700, color:demoMode?"#fbbf24":"#334155" }}>DEMO</span>
+          </div>
+          {user && <button onClick={handleLogout} style={{ fontSize:9, color:"#1a2235", background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>Sign out</button>}
+        </div>
+        {user && ph !== "idle" && (
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <Dot color={phCfg.dot} pulse={["in_transit","arriving","landing"].includes(ph)} size={5}/>
+            <span style={{ fontSize:9, fontWeight:700, color:phCfg.color }}>{phCfg.label}</span>
+            <span style={{ fontSize:9, color:"#1a2235" }}>·</span>
+            <Mono color="#1a2235" size={9}>{mission.id}</Mono>
+          </div>
+        )}
+      </div>
+
+      {/* Phone shell */}
+      <div style={{ width:320, height:680, background:T.surface, borderRadius:44, border:"1.5px solid rgba(255,255,255,0.09)", boxShadow:`0 32px 90px rgba(0,0,0,0.65),0 0 70px ${glow}10,inset 0 1px 0 rgba(255,255,255,0.05)`, overflow:"hidden", display:"flex", flexDirection:"column", flexShrink:0, position:"relative" }}>
+        {/* Notch */}
+        <div style={{ height:36, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", flexShrink:0, paddingTop:4 }}>
+          <div style={{ width:88, height:22, background:"#000", borderRadius:99 }}/>
+          <div style={{ position:"absolute", left:16, fontSize:9, color:"rgba(255,255,255,0.18)", fontFamily:"'JetBrains Mono',monospace" }}>9:41</div>
+          <div style={{ position:"absolute", right:16 }}>
+            <div style={{ width:13, height:7.5, border:"1.5px solid rgba(255,255,255,0.2)", borderRadius:2.5, display:"flex", alignItems:"center", padding:"1px" }}>
+              <div style={{ width:"72%", height:"100%", background:"rgba(255,255,255,0.2)", borderRadius:1 }}/>
+            </div>
+          </div>
+        </div>
+
+        {/* App header with role switcher */}
+        {user && (
+          <div style={{ padding:"5px 13px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${T.border}`, flexShrink:0, background:T.surface }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <div style={{ width:18, height:18, borderRadius:5, background:"linear-gradient(135deg,#f97316,#ea580c)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+              <span style={{ fontSize:11, fontWeight:800, color:T.text, fontFamily:"'Syne',sans-serif" }}>Atlas</span>
+            </div>
+            <div onClick={switchRole} style={{ display:"flex", alignItems:"center", background:T.card, borderRadius:99, border:`1px solid ${T.borderHi}`, padding:"2px", cursor:"pointer" }}>
+              {[
+                { role:"customer", label:"🏥 Customer", color:T.sky },
+                { role:"handler",  label:"📦 Handler",  color:T.orange },
+              ].map(({ role, label, color }) => {
+                const isActive = activeRole === role;
+                return (
+                  <div key={role} style={{ padding:"3px 9px", borderRadius:99, background:isActive?`${color}18`:"transparent", border:isActive?`1px solid ${color}35`:"1px solid transparent", fontSize:9, fontWeight:isActive?800:500, color:isActive?color:T.sub, transition:"all .22s", whiteSpace:"nowrap" }}>
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Arrival banner */}
+        {showBanner && user && activeRole==="customer" && mission.phase==="landed" && (
+          <div onClick={toHandler} style={{ position:"absolute", top:user?92:58, left:0, right:0, zIndex:50, background:`linear-gradient(135deg,${T.green}f0,#059669f0)`, padding:"10px 15px", cursor:"pointer", boxShadow:`0 4px 24px rgba(52,211,153,0.35)`, animation:"slideDown .4s ease" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:800, color:"#fff" }}>✅ Aircraft Has Landed</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,0.85)", marginTop:1 }}>{mission.id} · Complete checklist then scan out</div>
+              </div>
+              <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.9)", background:"rgba(255,255,255,0.15)", padding:"4px 8px", borderRadius:99 }}>Handler →</div>
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
+        <div key={activeRole+tab} style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column", minHeight:0, animation:user?"roleSlide .18s ease":"none" }}>
+          <div style={{ flex:1, overflowY:"auto", scrollbarWidth:"none", minHeight:0, display:"flex", flexDirection:"column" }}>
+            {renderContent()}
+          </div>
+        </div>
+
+        {/* Bottom nav */}
+        {user && (
+          <nav style={{ display:"flex", borderTop:`1px solid ${T.border}`, background:T.surface, padding:"5px 0 2px", flexShrink:0 }}>
+            {tabs.map(({ key, icon, label, badge }) => {
+              const isActive = tab === key;
+              return (
+                <button key={key} onClick={() => setTab(key)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2, background:"none", border:"none", cursor:"pointer", padding:"4px 0", position:"relative" }}>
+                  <span style={{ fontSize:15, filter:isActive?"none":"grayscale(1) opacity(0.28)" }}>{icon}</span>
+                  <span style={{ fontSize:9, fontWeight:isActive?700:400, color:isActive?glow:T.sub }}>{label}</span>
+                  {badge > 0 && <div style={{ position:"absolute", top:1, right:"calc(50% - 14px)", width:14, height:14, borderRadius:"50%", background:T.red, fontSize:8, color:"#fff", fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>{badge}</div>}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        {/* Home bar */}
+        <div style={{ height:22, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <div style={{ width:110, height:4, borderRadius:99, background:"rgba(255,255,255,0.11)" }}/>
+        </div>
+      </div>
+
+      {/* Hint */}
+      <div style={{ marginTop:13, fontSize:10, color:"#1a2235", textAlign:"center", maxWidth:360, lineHeight:1.9 }}>
+        {!user
+          ? demoMode ? "Tap Customer or Handler to quick-login" : "drpatel@lakelandregional.org / 1234  ·  m.webb@atlasresponse.com / 5678"
+          : activeRole==="handler"
+            ? ph==="idle" ? "📦 Scan Pod → Load → Seal → Mission live in Customer" : ph==="landed" ? "📦 Aircraft landed · Complete checklist → scan-out unlocked" : "📦 Open atlas_roc_v3.jsx in another tab to sync with ROC console"
+            : ph==="idle" || ph==="loaded" ? "🏥 Awaiting handler scan-in · Switch to Handler to start" : ph==="arriving" ? "🏥 Aircraft approaching — stand by" : "🏥 Live tracking on Home · Alerts tab for notifications"
+        }
+      </div>
+    </div>
+  );
+}

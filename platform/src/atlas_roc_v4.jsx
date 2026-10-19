@@ -1,0 +1,1133 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+/* ═══════════════════════════════════════════════════════════════
+   ATLAS ROC CONSOLE v4  —  Operations Dashboard
+   
+   Open atlas_mobile_v3.jsx in one browser tab, this in another.
+   All state syncs via localStorage bridge at 500ms.
+
+   Layout: fixed top header → left sidebar nav → main content area
+   Tabs: Overview · Missions · Dispatch · Alerts · Comms · Custody
+
+   New vs v3:
+   · Full-width dashboard layout (not narrow centered column)
+   · Overview tab: live KPI strip + active mission card + quick actions
+   · Missions tab: live map + dual telemetry + flight timeline
+   · Dispatch tab: request queue with priority triage + assign flow
+   · Alerts tab: severity-sorted feed + critical banner
+   · Comms tab: full messaging thread
+   · Custody tab: timestamped event log
+   · Live clock + sync indicator always visible in header
+   · Phase progress stepper across top of mission detail
+═══════════════════════════════════════════════════════════════ */
+
+const GF = `@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');`;
+
+/* ── TOKENS ──────────────────────────────────────────────────── */
+const T = {
+  bg:      "#04080f",
+  sidebar: "#060a14",
+  surface: "#080d18",
+  card:    "#0c1122",
+  cardHi:  "#0f1530",
+  border:  "rgba(255,255,255,0.06)",
+  borderHi:"rgba(255,255,255,0.12)",
+  text:    "#e2e8f0",
+  sub:     "#4a6080",
+  faint:   "#1a2540",
+  sky:     "#38bdf8",  skyD:  "rgba(56,189,248,0.08)",
+  orange:  "#fb923c",  orD:   "rgba(251,146,60,0.08)",
+  green:   "#34d399",  greenD:"rgba(52,211,153,0.08)",
+  red:     "#f87171",  redD:  "rgba(248,113,113,0.08)",
+  purple:  "#a78bfa",  purpD: "rgba(167,139,250,0.08)",
+  gold:    "#fbbf24",  goldD: "rgba(251,191,36,0.08)",
+};
+
+/* ── BRIDGE ──────────────────────────────────────────────────── */
+const BK = {
+  mission:"atl_mission", queued:"atl_queued",
+  alerts:"atl_alerts",   messages:"atl_messages", custody:"atl_custody",
+};
+const bR = (k) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch{return null;} };
+const bW = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch{} };
+
+/* ── PHASE CONFIG ────────────────────────────────────────────── */
+const PH = {
+  idle:        { label:"Awaiting Scan-In",  color:T.sub,    short:"IDLE"     },
+  scanning_in: { label:"Verifying Pod",     color:T.gold,   short:"SCAN IN"  },
+  loaded:      { label:"Cargo Loading",     color:T.orange, short:"LOADING"  },
+  sealed:      { label:"Pod Sealed",        color:T.sky,    short:"SEALED"   },
+  in_transit:  { label:"In Transit",        color:T.sky,    short:"IN FLIGHT"},
+  arriving:    { label:"Approaching",       color:T.sky,    short:"APPROACH" },
+  landing:     { label:"Landing",           color:T.gold,   short:"LANDING"  },
+  landed:      { label:"Aircraft Landed",   color:T.green,  short:"LANDED"   },
+  scanning_out:{ label:"Scan-Out",          color:T.orange, short:"SCAN OUT" },
+  delivered:   { label:"Delivered",         color:T.green,  short:"COMPLETE" },
+};
+
+const FLEET = ["Atlas-01","Atlas-02","Atlas-03","Atlas-05","Atlas-06","Atlas-08"];
+const PODS  = ["POD-03","POD-05","POD-09","POD-11","POD-12"];
+
+/* ── INIT DATA ───────────────────────────────────────────────── */
+const ALERTS_INIT = [
+  { id:2, time:"12:08", type:"success", mission:"ATLAS-0452", msg:"Mission dispatched — handler assigned", acked:true  },
+  { id:1, time:"12:02", type:"info",    mission:"ATLAS-0452", msg:"Aircraft pre-flight complete. Ready on handler seal.", acked:true  },
+];
+const MSGS_INIT = [
+  { id:1, from:"ROC",     text:"Access window opens at origin in 8 minutes. Please be at the pod area.", time:"12:02", read:true },
+  { id:2, from:"ROC",     text:"Aircraft fuelled and pre-flight complete. Ready on your seal.", time:"11:55", read:true },
+  { id:3, from:"Handler", text:"Checked in at Tampa General receiving. Pod area is clear.", time:"11:48", read:true },
+];
+
+/* ── ATOMS ───────────────────────────────────────────────────── */
+function Dot({ color, pulse, size=7 }) {
+  return (
+    <span style={{ position:"relative", display:"inline-flex", width:size, height:size, flexShrink:0 }}>
+      {pulse && <span style={{ position:"absolute", inset:0, borderRadius:"50%", background:color, opacity:0.3, animation:"ping 1.8s infinite" }}/>}
+      <span style={{ width:size, height:size, borderRadius:"50%", background:color, display:"block" }}/>
+    </span>
+  );
+}
+
+function Pill({ children, color, sm }) {
+  return (
+    <span style={{ fontSize:sm?7.5:9, fontWeight:700, padding:sm?"1px 6px":"2px 9px", borderRadius:99, background:`${color}18`, color, border:`1px solid ${color}28`, whiteSpace:"nowrap" }}>
+      {children}
+    </span>
+  );
+}
+
+function Mono({ children, color=T.sub, size=11 }) {
+  return <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:size, color, fontWeight:500 }}>{children}</span>;
+}
+
+function Card({ children, accent, p="14px 16px", r=14, style:s={} }) {
+  return (
+    <div style={{ background:T.card, border:`1px solid ${accent?accent+"22":T.border}`, borderRadius:r, padding:p, ...s }}>
+      {children}
+    </div>
+  );
+}
+
+function SLabel({ children, color=T.sub }) {
+  return <div style={{ fontSize:8.5, fontWeight:700, color, textTransform:"uppercase", letterSpacing:".16em", marginBottom:8 }}>{children}</div>;
+}
+
+function TRow({ label, value, ok, warn, mono, accent }) {
+  const c = ok===false ? T.red : warn ? T.orange : T.green;
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${T.border}` }}>
+      <span style={{ fontSize:11, color:T.sub }}>{label}</span>
+      <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+        {ok !== undefined && <div style={{ width:5, height:5, borderRadius:"50%", background:c }}/>}
+        <span style={{ fontSize:11, fontWeight:600, color:ok===false?T.red:accent||T.text, fontFamily:mono?"'JetBrains Mono',monospace":"inherit" }}>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function Spin({ color=T.sky, size=18 }) {
+  return <div style={{ width:size, height:size, border:`2px solid ${color}20`, borderTopColor:color, borderRadius:"50%", animation:"spin .8s linear infinite", flexShrink:0 }}/>;
+}
+
+/* ── KPI TILE ────────────────────────────────────────────────── */
+function KpiTile({ label, value, sub, color, icon }) {
+  return (
+    <div style={{ background:T.card, border:`1px solid ${color}18`, borderRadius:14, padding:"14px 16px", flex:1, minWidth:0 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+        <div style={{ fontSize:8.5, fontWeight:700, color:T.sub, textTransform:"uppercase", letterSpacing:".14em" }}>{label}</div>
+        <span style={{ fontSize:16, opacity:.6 }}>{icon}</span>
+      </div>
+      <div style={{ fontSize:24, fontWeight:800, color, fontFamily:"'JetBrains Mono',monospace", letterSpacing:"-.02em" }}>{value}</div>
+      {sub && <div style={{ fontSize:10, color:T.sub, marginTop:4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ── LIVE MAP ────────────────────────────────────────────────── */
+function LiveMap({ mission, size="full" }) {
+  if (!mission || mission.phase === "idle") return null;
+  const ph  = mission.phase;
+  const t   = Math.min((mission.progress||0)/100, .99);
+  const sx=60, sy=200, ex=900, ey=70, cx=480, cy=30;
+  const bx  = (1-t)*(1-t)*sx + 2*(1-t)*t*cx + t*t*ex;
+  const by  = (1-t)*(1-t)*sy + 2*(1-t)*t*cy + t*t*ey;
+  const active = ["in_transit","arriving","landing"].includes(ph);
+  const dot    = ph==="landing" ? T.gold : ph==="landed" ? T.green : T.sky;
+  const h      = size === "full" ? 220 : 140;
+
+  return (
+    <div style={{ background:"linear-gradient(155deg,#030608,#050b14)", borderRadius:14, overflow:"hidden", border:`1px solid ${T.border}`, position:"relative" }}>
+      <svg viewBox="0 0 980 240" style={{ width:"100%", height:h, display:"block" }}>
+        {/* Grid */}
+        {[0,1,2,3].map(i => <line key={`h${i}`} x1="0" y1={i*80} x2="980" y2={i*80} stroke="rgba(255,255,255,0.018)" strokeWidth="1"/>)}
+        {[0,1,2,3,4,5,6].map(i => <line key={`v${i}`} x1={i*163} y1="0" x2={i*163} y2="240" stroke="rgba(255,255,255,0.018)" strokeWidth="1"/>)}
+
+        {/* Route — completed */}
+        <path d={`M ${sx} ${sy} Q ${cx} ${cy} ${bx} ${by}`}
+          stroke={dot} strokeWidth="2.5" fill="none" strokeOpacity=".7"/>
+        {/* Route — remaining */}
+        <path d={`M ${bx} ${by} Q ${cx} ${cy} ${ex} ${ey}`}
+          stroke={T.sky} strokeWidth="1.5" fill="none" strokeOpacity=".15" strokeDasharray="8 5"/>
+
+        {/* Origin */}
+        <circle cx={sx} cy={sy} r="7" fill="#0c1122" stroke={T.faint} strokeWidth="2"/>
+        <circle cx={sx} cy={sy} r="3" fill={T.sub}/>
+        <text x={sx} y={sy+18} textAnchor="middle" fill={T.faint} fontSize="10" fontFamily="JetBrains Mono">LKL</text>
+
+        {/* Destination */}
+        <circle cx={ex} cy={ey} r="7" fill="#0c1122" stroke={ph==="landed"?T.green:T.faint} strokeWidth="2"/>
+        <circle cx={ex} cy={ey} r="3" fill={ph==="landed"?T.green:T.sub}/>
+        <text x={ex} y={ey-12} textAnchor="middle" fill={ph==="landed"?T.green:T.faint} fontSize="10" fontFamily="JetBrains Mono">TPA</text>
+
+        {/* Aircraft */}
+        {active && (
+          <>
+            <circle cx={bx} cy={by} r="26" fill="none" stroke={dot} strokeWidth="1" strokeOpacity=".14" style={{ animation:"ping 2.5s infinite" }}/>
+            <circle cx={bx} cy={by} r="14" fill={`${dot}14`} stroke={dot} strokeWidth="1.5"/>
+            <circle cx={bx} cy={by} r="5" fill={dot}/>
+            <text x={bx} y={by-21} textAnchor="middle" fill={dot} fontSize="9.5" fontFamily="JetBrains Mono" fontWeight="700">
+              {mission.aircraft||"Atlas-04"}
+            </text>
+            {mission.alt > 0 && (
+              <text x={bx} y={by+30} textAnchor="middle" fill={dot} fontSize="8.5" fontFamily="JetBrains Mono" opacity=".8">
+                {Math.round(mission.alt).toLocaleString()} ft  ·  {Math.round(mission.speed)} kts
+              </text>
+            )}
+          </>
+        )}
+
+        {/* Landed marker */}
+        {ph === "landed" && (
+          <g>
+            <circle cx={ex} cy={ey} r="12" fill={`${T.green}18`} stroke={T.green} strokeWidth="2"/>
+            <circle cx={ex} cy={ey} r="5" fill={T.green}/>
+            <text x={ex} y={ey-22} textAnchor="middle" fill={T.green} fontSize="9" fontFamily="JetBrains Mono" fontWeight="700">LANDED ✓</text>
+          </g>
+        )}
+      </svg>
+
+      {/* Status overlay */}
+      <div style={{ position:"absolute", top:10, right:12, display:"flex", alignItems:"center", gap:8 }}>
+        {active && (
+          <div style={{ display:"flex", alignItems:"center", gap:5, padding:"3px 9px", background:"rgba(0,0,0,0.6)", borderRadius:99, border:`1px solid ${T.border}` }}>
+            <Dot color={T.green} pulse size={5}/>
+            <Mono color={T.green} size={8}>LIVE</Mono>
+          </div>
+        )}
+        <div style={{ padding:"3px 9px", background:"rgba(0,0,0,0.6)", borderRadius:99, border:`1px solid ${(PH[ph]||PH.idle).color}28` }}>
+          <Mono color={(PH[ph]||PH.idle).color} size={8}>{(PH[ph]||PH.idle).short}</Mono>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ position:"absolute", bottom:0, left:0, right:0, height:3, background:"rgba(255,255,255,0.04)" }}>
+        <div style={{ height:"100%", width:`${Math.min(mission.progress||0,100)}%`, background:dot, transition:"width 1s ease" }}/>
+      </div>
+    </div>
+  );
+}
+
+/* ── PHASE STEPPER ───────────────────────────────────────────── */
+function PhaseStepper({ phase }) {
+  const steps = [
+    { key:"idle",       label:"Scan In"  },
+    { key:"sealed",     label:"Sealed"   },
+    { key:"in_transit", label:"In Flight"},
+    { key:"landed",     label:"Landed"   },
+    { key:"delivered",  label:"Complete" },
+  ];
+  const order = ["idle","scanning_in","loaded","sealed","in_transit","arriving","landing","landed","scanning_out","delivered"];
+  const ci    = order.indexOf(phase);
+  const stepIdx = (i) => {
+    const stepsPhases = ["idle","sealed","in_transit","landed","delivered"];
+    const si = order.indexOf(stepsPhases[i]);
+    return ci > si ? "done" : ci === si ? "active" : "future";
+  };
+
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+      {steps.map((s, i) => {
+        const state = stepIdx(i);
+        const c     = state==="done"?T.green:state==="active"?(PH[phase]||PH.idle).color:T.faint;
+        return (
+          <div key={s.key} style={{ display:"flex", alignItems:"center", flex: i < steps.length-1 ? 1 : "none" }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+              <div style={{ width:20, height:20, borderRadius:"50%", background:state==="future"?"rgba(255,255,255,0.04)":state==="done"?T.green:`${c}20`, border:`1.5px solid ${state==="future"?"rgba(255,255,255,0.08)":c}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                {state==="done"
+                  ? <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3l2 2 4-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  : state==="active"
+                    ? <div style={{ width:5, height:5, borderRadius:"50%", background:c }}/>
+                    : null
+                }
+              </div>
+              <div style={{ fontSize:8, fontWeight:state!=="future"?700:400, color:state==="future"?T.faint:c, whiteSpace:"nowrap" }}>{s.label}</div>
+            </div>
+            {i < steps.length-1 && (
+              <div style={{ flex:1, height:1.5, background:state==="done"?T.green:"rgba(255,255,255,0.06)", margin:"0 4px", marginBottom:14 }}/>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── TELEMETRY STRIP ─────────────────────────────────────────── */
+function TelStrip({ mission }) {
+  const active = ["in_transit","arriving","landing"].includes(mission?.phase);
+  const items = [
+    { l:"Altitude",  v:active?`${Math.round(mission.alt||0).toLocaleString()} ft`:"—",  c:T.sky,   ok:active },
+    { l:"Speed",     v:active?`${Math.round(mission.speed||0)} kts`:"—",                c:T.sky,   ok:active },
+    { l:"Heading",   v:active?`${mission.heading||0}°`:"—",                             c:T.sub,   ok:true   },
+    { l:"Progress",  v:`${Math.round(mission.progress||0)}%`,                           c:T.sky,   ok:true   },
+    { l:"ETA",       v:mission?.eta?`${Math.round(mission.eta)} min`:"—",               c:T.gold,  ok:!!mission?.eta },
+    { l:"Temp",      v:`${(mission?.temp||0).toFixed(1)}°C`,                            c:mission?.tempOk?T.green:T.red, ok:mission?.tempOk },
+    { l:"Seal",      v:mission?.seal?"Intact":"—",                                      c:mission?.seal?T.green:T.sub, ok:mission?.seal||undefined },
+    { l:"LTE",       v:`${mission?.lteSignal||0}%`,                                     c:(mission?.lteSignal||0)>70?T.green:T.orange, ok:(mission?.lteSignal||0)>70 },
+  ];
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(8,1fr)", gap:8 }}>
+      {items.map(({ l,v,c,ok }) => (
+        <div key={l} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 12px" }}>
+          <div style={{ fontSize:8.5, color:T.sub, marginBottom:4, textTransform:"uppercase", letterSpacing:".1em" }}>{l}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            {ok !== undefined && <div style={{ width:5, height:5, borderRadius:"50%", background:ok?c:T.red, flexShrink:0 }}/>}
+            <Mono color={ok===false?T.red:c} size={13}>{v}</Mono>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── OVERVIEW TAB ────────────────────────────────────────────── */
+function OverviewTab({ mission, queued, alerts, onDispatchTab, onAlertsTab, onMissionsTab }) {
+  const ph          = mission?.phase || "idle";
+  const phCfg       = PH[ph] || PH.idle;
+  const live        = ["in_transit","arriving","landing"].includes(ph);
+  const activeMissions = ph !== "idle" ? 1 : 0;
+  const pendingQ    = queued.filter(q => q.status==="queued").length;
+  const unacked     = alerts.filter(a => !a.acked).length;
+  const criticals   = alerts.filter(a => !a.acked && a.type==="critical").length;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+      {/* KPI strip */}
+      <div style={{ display:"flex", gap:12 }}>
+        <KpiTile label="Active Missions"  value={activeMissions} sub={activeMissions?"Live mission in progress":"No active missions"} color={activeMissions?T.sky:T.sub} icon="✈️"/>
+        <KpiTile label="Queued Requests"  value={pendingQ}       sub={pendingQ?"Awaiting dispatch":"All requests dispatched"}         color={pendingQ?T.orange:T.sub} icon="📋"/>
+        <KpiTile label="Unacked Alerts"   value={unacked}        sub={criticals>0?`${criticals} critical`:"No critical alerts"}        color={unacked?T.red:T.sub} icon="🔔"/>
+        <KpiTile label="Fleet Status"     value={`${FLEET.length}`} sub="Aircraft in fleet"                                           color={T.purple} icon="🚁"/>
+      </div>
+
+      {/* Active mission or idle state */}
+      {ph === "idle" ? (
+        <Card style={{ textAlign:"center", padding:"40px" }}>
+          <div style={{ fontSize:28, marginBottom:12, opacity:.2 }}>📡</div>
+          <div style={{ fontSize:14, fontWeight:600, color:T.sub }}>No Active Mission</div>
+          <div style={{ fontSize:11, color:T.faint, marginTop:6, lineHeight:1.7 }}>
+            Waiting for handler scan-in via mobile app.
+            <br/>
+            {pendingQ > 0
+              ? <span style={{ color:T.orange }}>→ {pendingQ} request{pendingQ>1?"s":""} pending dispatch</span>
+              : "Open atlas_mobile_v3.jsx in another tab to begin."}
+          </div>
+          {pendingQ > 0 && (
+            <button onClick={onDispatchTab} style={{ marginTop:16, padding:"8px 20px", borderRadius:10, border:`1px solid ${T.orange}30`, background:T.orD, color:T.orange, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+              Go to Dispatch →
+            </button>
+          )}
+        </Card>
+      ) : (
+        <div style={{ display:"flex", gap:12 }}>
+          {/* Mission card */}
+          <div style={{ flex:"2", display:"flex", flexDirection:"column", gap:12 }}>
+            <Card accent={phCfg.color}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
+                <div>
+                  <Mono color={T.sub} size={9}>{mission.id}</Mono>
+                  <div style={{ fontSize:18, fontWeight:800, color:T.text, marginTop:3, letterSpacing:"-.02em" }}>
+                    {mission.origin?.split(" ")[0]} → {mission.destination?.split(" ")[0]}
+                  </div>
+                  <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>
+                    {mission.pod} · {mission.aircraft} · {mission.priority}
+                  </div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <Dot color={phCfg.color} pulse={live} size={7}/>
+                    <Pill color={phCfg.color}>{phCfg.label}</Pill>
+                  </div>
+                  {mission.eta && <Mono color={T.gold} size={11}>{Math.round(mission.eta)} min ETA</Mono>}
+                </div>
+              </div>
+              <PhaseStepper phase={ph}/>
+            </Card>
+            <LiveMap mission={mission} size="small"/>
+          </div>
+
+          {/* Quick status */}
+          <div style={{ flex:"1", display:"flex", flexDirection:"column", gap:10 }}>
+            <Card accent={T.sky} p="12px 14px">
+              <SLabel color={T.sky}>Aircraft</SLabel>
+              <TRow label="ID"       value={mission.aircraft||"—"} ok/>
+              <TRow label="Altitude" value={live?`${Math.round(mission.alt||0).toLocaleString()} ft`:"Ground"} ok={live} mono/>
+              <TRow label="Speed"    value={live?`${Math.round(mission.speed||0)} kts`:"—"} ok={live} mono/>
+              <TRow label="Progress" value={`${Math.round(mission.progress||0)}%`} ok mono/>
+            </Card>
+            <Card accent={mission?.tempOk?T.green:T.red} p="12px 14px">
+              <SLabel color={mission?.tempOk?T.green:T.red}>Pod</SLabel>
+              <TRow label="Temp"   value={`${(mission.temp||0).toFixed(1)}°C`} ok={mission.tempOk} warn={!mission.tempOk} mono/>
+              <TRow label="Seal"   value={mission.seal?"Intact":"—"} ok={mission.seal||undefined}/>
+              <TRow label="Batt"   value={`${mission.battPrimary||0}%`} ok={(mission.battPrimary||0)>20} mono/>
+              <TRow label="LTE"    value={`${mission.lteSignal||0}%`} ok={(mission.lteSignal||0)>70} mono/>
+            </Card>
+            <button onClick={onMissionsTab} style={{ padding:"10px", borderRadius:10, border:`1px solid ${T.sky}28`, background:T.skyD, color:T.sky, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", width:"100%" }}>
+              Full Mission Detail →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Recent alerts */}
+      {unacked > 0 && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <SLabel>Recent Alerts</SLabel>
+            <button onClick={onAlertsTab} style={{ fontSize:10, color:T.orange, background:"none", border:"none", cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>View all →</button>
+          </div>
+          {alerts.filter(a => !a.acked).slice(0,3).map(a => {
+            const cfg = { critical:{c:T.red,i:"!"}, warning:{c:T.orange,i:"⚠"}, info:{c:T.sky,i:"ℹ"}, success:{c:T.green,i:"✓"} };
+            const s = cfg[a.type] || cfg.info;
+            return (
+              <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"10px 12px", background:T.card, border:`1px solid ${s.c}18`, borderRadius:10, marginBottom:6 }}>
+                <div style={{ width:18, height:18, borderRadius:"50%", background:`${s.c}18`, border:`1px solid ${s.c}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:s.c, fontWeight:800, flexShrink:0 }}>{s.i}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:T.text }}>{a.msg}</div>
+                  <Mono color={T.faint} size={9}>{a.mission} · {a.time}</Mono>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── MISSIONS TAB ────────────────────────────────────────────── */
+function MissionsTab({ mission }) {
+  const ph    = mission?.phase || "idle";
+  const phCfg = PH[ph] || PH.idle;
+  const live  = ["in_transit","arriving","landing"].includes(ph);
+
+  if (ph === "idle") {
+    return (
+      <Card style={{ textAlign:"center", padding:"60px" }}>
+        <div style={{ fontSize:28, marginBottom:12, opacity:.2 }}>✈️</div>
+        <div style={{ fontSize:14, fontWeight:600, color:T.sub }}>No Mission In Progress</div>
+        <div style={{ fontSize:11, color:T.faint, marginTop:6 }}>Mission data will appear here once a handler initiates scan-in via mobile app.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      {/* Mission header */}
+      <Card accent={phCfg.color}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".12em", marginBottom:4 }}>Active Mission</div>
+            <Mono color={T.sub} size={10}>{mission.id}</Mono>
+            <div style={{ fontSize:22, fontWeight:800, color:T.text, marginTop:4, letterSpacing:"-.02em" }}>
+              {mission.origin?.split(" ")[0]} → {mission.destination?.split(" ")[0]}
+            </div>
+            <div style={{ fontSize:12, color:T.sub, marginTop:4 }}>
+              {mission.pod} · {mission.aircraft} · {mission.priority} · Env: {mission.envProfile}
+            </div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <Dot color={phCfg.color} pulse={live} size={7}/>
+              <Pill color={phCfg.color}>{phCfg.label}</Pill>
+            </div>
+            {mission.sealedAt && <Mono color={T.faint} size={9}>Sealed {mission.sealedAt}</Mono>}
+            {mission.arrivedAt && <Mono color={T.green} size={9}>Landed {mission.arrivedAt}</Mono>}
+          </div>
+        </div>
+        <PhaseStepper phase={ph}/>
+      </Card>
+
+      {/* Live map */}
+      <LiveMap mission={mission} size="full"/>
+
+      {/* Telemetry strip */}
+      <TelStrip mission={mission}/>
+
+      {/* Dual telemetry cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+        <Card accent={T.sky} p="14px 16px">
+          <SLabel color={T.sky}>Aircraft Telemetry</SLabel>
+          <TRow label="Status"       value={live?"In Flight":ph==="landed"?"On Ground — Stopped":"On Ground"} ok={live}/>
+          <TRow label="Aircraft"     value={mission.aircraft||"—"} ok/>
+          <TRow label="Altitude"     value={live?`${Math.round(mission.alt||0).toLocaleString()} ft`:"—"} ok={live} mono/>
+          <TRow label="Speed"        value={live?`${Math.round(mission.speed||0)} kts`:"—"} ok={live} mono/>
+          <TRow label="Heading"      value={live?`${mission.heading||0}°`:"—"} ok mono/>
+          <TRow label="ETA"          value={mission.eta?`${Math.round(mission.eta)} min`:"—"} ok={!!mission.eta} mono/>
+          <TRow label="Progress"     value={`${Math.round(mission.progress||0)}%`} ok mono/>
+          <TRow label="Distance"     value={`${mission.distanceNM||72} NM`} ok mono/>
+        </Card>
+
+        <Card accent={mission.tempOk?T.green:T.red} p="14px 16px">
+          <SLabel color={mission.tempOk?T.green:T.red}>Pod Telemetry</SLabel>
+          <TRow label="Temperature"   value={`${(mission.temp||0).toFixed(1)}°C`} ok={mission.tempOk} warn={!mission.tempOk} mono/>
+          <TRow label="Env Profile"   value={mission.envProfile||"—"} ok/>
+          <TRow label="Seal"          value={mission.seal?"Intact":"Not sealed"} ok={mission.seal}/>
+          <TRow label="Shock Events"  value={mission.shock?"DETECTED":"None"} ok={!mission.shock}/>
+          <TRow label="Batt Primary"  value={`${mission.battPrimary||0}%`} ok={(mission.battPrimary||0)>20} mono/>
+          <TRow label="Batt Backup"   value={`${mission.battBackup||0}%`} ok mono/>
+          <TRow label="LTE Signal"    value={`${mission.lteSignal||0}%`} ok={(mission.lteSignal||0)>70} mono/>
+          <TRow label="Pod ID"        value={mission.pod||"—"} ok mono/>
+        </Card>
+      </div>
+
+      {/* Anomalies */}
+      {mission.anomalies && mission.anomalies.length > 0 && (
+        <Card accent={T.red} p="14px 16px">
+          <SLabel color={T.red}>⚠ Anomaly Reports ({mission.anomalies.length})</SLabel>
+          {mission.anomalies.map((a, i) => (
+            <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:T.red }}>{a.type}</div>
+                {a.notes && <div style={{ fontSize:11, color:T.sub, marginTop:2 }}>{a.notes}</div>}
+              </div>
+              <Mono color={T.faint} size={9}>{a.time}</Mono>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ── DISPATCH TAB ────────────────────────────────────────────── */
+function DispatchTab({ queued, onAssign }) {
+  const [sel,  setSel]  = useState(null);
+  const [ac,   setAc]   = useState(FLEET[0]);
+  const [pod,  setPod]  = useState(PODS[0]);
+  const [done, setDone] = useState([]);
+
+  const pending    = queued.filter(q => q.status==="queued"   && !done.includes(q.id));
+  const assigned   = queued.filter(q => q.status==="assigned" || done.includes(q.id));
+
+  const priorityColor = { "Class A":T.red, "Class B":T.orange, "Class C":T.purple };
+
+  return (
+    <div style={{ display:"flex", gap:16 }}>
+      {/* Queue */}
+      <div style={{ flex:1.2, display:"flex", flexDirection:"column", gap:10 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
+          <SLabel>Pending Requests ({pending.length})</SLabel>
+          {pending.length > 0 && (
+            <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+              <Dot color={T.orange} pulse size={5}/>
+              <span style={{ fontSize:9, color:T.orange, fontWeight:700 }}>AWAITING DISPATCH</span>
+            </div>
+          )}
+        </div>
+
+        {pending.length === 0 && (
+          <Card style={{ textAlign:"center", padding:"40px" }}>
+            <div style={{ fontSize:22, marginBottom:8, opacity:.2 }}>📋</div>
+            <div style={{ fontSize:13, color:T.sub }}>No pending requests</div>
+            <div style={{ fontSize:11, color:T.faint, marginTop:4 }}>Customer submissions appear here automatically</div>
+          </Card>
+        )}
+
+        {pending.map(q => {
+          const pc = priorityColor[q.priority] || T.orange;
+          const isSel = sel?.id === q.id;
+          return (
+            <div
+              key={q.id}
+              onClick={() => setSel(isSel ? null : q)}
+              style={{ background:isSel?T.cardHi:T.card, border:`1px solid ${isSel?pc+"35":T.border}`, borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .15s" }}
+            >
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div>
+                  <div style={{ display:"flex", gap:7, alignItems:"center", marginBottom:4 }}>
+                    <Mono color={T.faint} size={9}>{q.id}</Mono>
+                    <Pill color={pc} sm>{q.priority}</Pill>
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:700, color:T.text }}>
+                    {(q.from||"").split(" ")[0]} → {(q.to||"").split(" ")[0]}
+                  </div>
+                  <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>
+                    {q.payload||"—"}{q.notes?` · ${q.notes}` : ""}
+                  </div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                  <Mono color={T.faint} size={9}>{q.requestedAt}</Mono>
+                  {isSel && <div style={{ fontSize:9, color:pc, fontWeight:700 }}>SELECT BELOW ↓</div>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Assigned */}
+        {assigned.length > 0 && (
+          <>
+            <SLabel style={{ marginTop:8 }}>Dispatched ({assigned.length})</SLabel>
+            {assigned.map(q => (
+              <div key={q.id} style={{ background:T.card, border:`1px solid ${T.green}18`, borderRadius:12, padding:"12px 14px", opacity:.7 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <Mono color={T.faint} size={9}>{q.id}</Mono>
+                    <div style={{ fontSize:12, fontWeight:600, color:T.text, marginTop:2 }}>
+                      {(q.from||"").split(" ")[0]} → {(q.to||"").split(" ")[0]}
+                    </div>
+                  </div>
+                  <Pill color={T.green} sm>Dispatched ✓</Pill>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Assignment panel */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", gap:10 }}>
+        <SLabel>Assignment Panel</SLabel>
+        {!sel ? (
+          <Card style={{ textAlign:"center", padding:"40px", borderStyle:"dashed" }}>
+            <div style={{ fontSize:22, marginBottom:8, opacity:.2 }}>👆</div>
+            <div style={{ fontSize:13, color:T.sub }}>Select a request to assign</div>
+            <div style={{ fontSize:11, color:T.faint, marginTop:4 }}>Tap any pending request on the left to begin dispatch</div>
+          </Card>
+        ) : (
+          <Card accent={T.sky} p="16px">
+            <SLabel color={T.sky}>Assigning: {sel.id}</SLabel>
+
+            {/* Request summary */}
+            <div style={{ padding:"10px 12px", background:`${T.sky}08`, border:`1px solid ${T.sky}18`, borderRadius:10, marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:T.text }}>
+                {(sel.from||"").split(" ")[0]} → {(sel.to||"").split(" ")[0]}
+              </div>
+              <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>{sel.payload} · {sel.priority}{sel.notes?` · ${sel.notes}`:""}</div>
+            </div>
+
+            {/* Aircraft selector */}
+            <div style={{ marginBottom:10 }}>
+              <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".12em", marginBottom:6 }}>Aircraft</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {FLEET.map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setAc(f)}
+                    style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${ac===f?T.sky+"40":T.border}`, background:ac===f?T.skyD:T.card, color:ac===f?T.sky:T.sub, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'JetBrains Mono',monospace" }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Pod selector */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".12em", marginBottom:6 }}>Pod</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {PODS.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPod(p)}
+                    style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${pod===p?T.orange+"40":T.border}`, background:pod===p?T.orD:T.card, color:pod===p?T.orange:T.sub, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'JetBrains Mono',monospace" }}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div style={{ padding:"10px 12px", background:"rgba(0,0,0,0.3)", borderRadius:10, marginBottom:14 }}>
+              <div style={{ fontSize:10, color:T.sub, marginBottom:4 }}>Dispatch Summary</div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <Mono color={T.sky} size={11}>{ac}</Mono>
+                <Mono color={T.sub} size={11}>+</Mono>
+                <Mono color={T.orange} size={11}>{pod}</Mono>
+                <Mono color={T.sub} size={11}>→</Mono>
+                <Mono color={T.text} size={11}>{sel.id}</Mono>
+              </div>
+              <div style={{ marginTop:8, display:"flex", justifyContent:"space-between", alignItems:"center", borderTop:`1px solid rgba(255,255,255,0.07)`, paddingTop:8 }}>
+                <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".1em" }}>Mission Value</div>
+                <Mono color={T.green} size={12}>{sel.priority==="Class A"?"$9,500":sel.priority==="Class C"?"$7,000":"$8,500"}</Mono>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                onAssign(sel, ac, pod);
+                setDone(d => [...d, sel.id]);
+                setSel(null);
+              }}
+              style={{ width:"100%", padding:"12px", borderRadius:11, border:"none", background:`linear-gradient(135deg,${T.sky},${T.sky}bb)`, color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'Outfit',sans-serif", boxShadow:`0 4px 18px ${T.sky}28` }}
+            >
+              Dispatch Mission →
+            </button>
+
+            <button onClick={() => setSel(null)} style={{ width:"100%", marginTop:8, padding:"8px", borderRadius:9, border:`1px solid ${T.border}`, background:"transparent", color:T.sub, fontSize:11, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+              Cancel
+            </button>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── ALERTS TAB ──────────────────────────────────────────────── */
+function AlertsTab({ alerts, onAck, onAckAll }) {
+  const [filter, setFilter] = useState("all");
+  const cfg = {
+    critical:{ c:T.red,    i:"!", label:"Critical" },
+    warning: { c:T.orange, i:"⚠", label:"Warning"  },
+    info:    { c:T.sky,    i:"ℹ", label:"Info"     },
+    success: { c:T.green,  i:"✓", label:"Success"  },
+  };
+  const unacked  = alerts.filter(a => !a.acked).length;
+  const filtered = filter === "all" ? alerts : alerts.filter(a => a.type === filter);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+      {/* Controls */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ display:"flex", gap:6 }}>
+          {["all","critical","warning","info","success"].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${filter===f?(cfg[f]||{c:T.sky}).c+"35":T.border}`, background:filter===f?`${(cfg[f]||{c:T.sky}).c}12`:"transparent", color:filter===f?(cfg[f]||{c:T.sky}).c:T.sub, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}
+            >
+              {f.charAt(0).toUpperCase()+f.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <span style={{ fontSize:10, color:T.sub }}>{unacked} unacknowledged</span>
+          {unacked > 0 && (
+            <button onClick={onAckAll} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${T.purple}28`, background:T.purpD, color:T.purple, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+              Ack All
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 && (
+        <Card style={{ textAlign:"center", padding:"40px" }}>
+          <div style={{ fontSize:13, color:T.sub }}>No {filter === "all" ? "" : filter} alerts</div>
+        </Card>
+      )}
+
+      {filtered.map(a => {
+        const s = cfg[a.type] || cfg.info;
+        return (
+          <div key={a.id} style={{ display:"flex", gap:12, alignItems:"flex-start", padding:"14px 16px", background:T.card, border:`1px solid ${a.acked?T.border:s.c+"22"}`, borderRadius:12, opacity:a.acked?.55:1, transition:"opacity .2s" }}>
+            <div style={{ width:32, height:32, borderRadius:"50%", background:`${s.c}14`, border:`1.5px solid ${s.c}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:s.c, fontWeight:800, flexShrink:0 }}>
+              {s.i}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:a.acked?T.sub:T.text }}>{a.msg}</div>
+                <Pill color={s.c} sm>{s.label}</Pill>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <Mono color={T.faint} size={9}>{a.mission}</Mono>
+                <span style={{ color:T.faint }}>·</span>
+                <Mono color={T.faint} size={9}>{a.time}</Mono>
+                {a.acked && <Mono color={T.faint} size={9}>✓ Acknowledged</Mono>}
+              </div>
+            </div>
+            {!a.acked && (
+              <button onClick={() => onAck(a.id)} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${T.purple}25`, background:T.purpD, color:T.purple, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", flexShrink:0 }}>
+                Ack
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── COMMS TAB ───────────────────────────────────────────────── */
+function CommsTab({ messages, onSend }) {
+  const [text,   setText]   = useState("");
+  const [typing, setTyping] = useState(false);
+  const endRef = useRef(null);
+  useEffect(() => endRef.current?.scrollIntoView({ behavior:"smooth" }), [messages]);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 200px)", maxHeight:600 }}>
+      {/* Header */}
+      <div style={{ padding:"12px 16px", background:T.card, borderRadius:"12px 12px 0 0", border:`1px solid ${T.border}`, borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <Dot color={T.green} pulse size={7}/>
+          <span style={{ fontSize:13, fontWeight:700, color:T.text }}>Handler Comms</span>
+          <Pill color={T.green} sm>Online</Pill>
+        </div>
+        <Mono color={T.faint} size={9}>{messages.length} messages</Mono>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:T.card, borderLeft:`1px solid ${T.border}`, borderRight:`1px solid ${T.border}`, scrollbarWidth:"thin", scrollbarColor:"rgba(255,255,255,0.07) transparent" }}>
+        {messages.map(m => (
+          <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:m.from==="ROC"?"flex-end":"flex-start", gap:4 }}>
+            <div style={{ fontSize:9, color:T.faint }}>
+              {m.from==="ROC" ? "Atlas ROC" : "Handler Webb"} · {m.time}
+            </div>
+            <div style={{ maxWidth:"72%", padding:"10px 14px", borderRadius:m.from==="ROC"?"14px 4px 14px 14px":"4px 14px 14px 14px", background:m.from==="ROC"?`${T.sky}14`:T.cardHi, border:`1px solid ${m.from==="ROC"?T.sky+"20":T.borderHi}` }}>
+              <div style={{ fontSize:12, color:T.text, lineHeight:1.6 }}>{m.text}</div>
+            </div>
+          </div>
+        ))}
+        {typing && (
+          <div style={{ display:"flex", alignItems:"center", gap:6, opacity:.5 }}>
+            <div style={{ fontSize:10, color:T.sub }}>Handler is typing</div>
+            <div style={{ display:"flex", gap:3 }}>
+              {[0,1,2].map(i => <div key={i} style={{ width:5, height:5, borderRadius:"50%", background:T.sub, animation:`ping 1.2s ${i*.2}s infinite` }}/>)}
+            </div>
+          </div>
+        )}
+        <div ref={endRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{ padding:"12px 16px", background:T.card, border:`1px solid ${T.border}`, borderTop:`1px solid ${T.border}`, borderRadius:"0 0 12px 12px", display:"flex", gap:10, alignItems:"flex-end", flexShrink:0 }}>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); if(text.trim()){onSend(text.trim());setText("");} } }}
+          placeholder="Message handler… (Enter to send)"
+          style={{ flex:1, padding:"10px 14px", borderRadius:10, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:"'Outfit',sans-serif", resize:"none", outline:"none", height:44, lineHeight:1.5 }}
+        />
+        <button
+          onClick={() => { if (!text.trim()) return; onSend(text.trim()); setText(""); }}
+          style={{ padding:"10px 18px", borderRadius:10, border:"none", background:`linear-gradient(135deg,${T.sky},${T.sky}bb)`, color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", flexShrink:0, boxShadow:`0 4px 14px ${T.sky}28` }}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── CUSTODY TAB ─────────────────────────────────────────────── */
+function CustodyTab({ custody }) {
+  const TC = { success:T.green, secure:T.sky, info:T.sub, warning:T.orange, critical:T.red };
+  const TI = { success:"✓", secure:"🔐", info:"ℹ", warning:"⚠", critical:"!" };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+      <SLabel>Chain of Custody Log ({custody.length} events)</SLabel>
+      {custody.length === 0 && (
+        <Card style={{ textAlign:"center", padding:"40px" }}>
+          <div style={{ fontSize:13, color:T.sub }}>No custody events yet</div>
+          <div style={{ fontSize:11, color:T.faint, marginTop:4 }}>Events appear here once handler initiates scan-in</div>
+        </Card>
+      )}
+      {custody.map((e, i) => {
+        const c = TC[e.type] || T.sub;
+        return (
+          <div key={i} style={{ display:"flex", gap:14, paddingBottom:i<custody.length-1?16:0 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:`${c}12`, border:`1.5px solid ${c}28`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
+                {TI[e.type]||"•"}
+              </div>
+              {i < custody.length-1 && (
+                <div style={{ flex:1, width:1.5, background:`${c}18`, margin:"4px 0" }}/>
+              )}
+            </div>
+            <div style={{ flex:1, paddingTop:4, paddingBottom:i<custody.length-1?16:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:T.text, lineHeight:1.4 }}>{e.event}</div>
+              <div style={{ display:"flex", gap:10, marginTop:5, flexWrap:"wrap", alignItems:"center" }}>
+                <Mono color={T.faint} size={9}>{e.mission}</Mono>
+                <span style={{ color:T.faint }}>·</span>
+                <Mono color={T.faint} size={9}>{e.time}</Mono>
+                <span style={{ color:T.faint }}>·</span>
+                <Mono color={T.faint} size={9}>{e.actor}</Mono>
+                <Pill color={c} sm>{e.type}</Pill>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── CLOCK ───────────────────────────────────────────────────── */
+function Clock() {
+  const [t, setT] = useState(new Date());
+  useEffect(() => { const i=setInterval(()=>setT(new Date()),1000); return()=>clearInterval(i); }, []);
+  return <Mono color={T.sub} size={11}>{t.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</Mono>;
+}
+
+/* ── ROOT ────────────────────────────────────────────────────── */
+export default function AtlasROCv4() {
+  const [mission,    setMission]    = useState(null);
+  const [queued,     setQueued]     = useState([]);
+  const [alerts,     setAlerts]     = useState(ALERTS_INIT);
+  const [messages,   setMessages]   = useState(MSGS_INIT);
+  const [custody,    setCustody]    = useState([]);
+  const [tab,        setTab]        = useState("overview");
+  const [syncStatus, setSyncStatus] = useState("waiting");
+  const [lastSync,   setLastSync]   = useState(null);
+
+  /* Bridge poll */
+  useEffect(() => {
+    const poll = setInterval(() => {
+      const bm = bR(BK.mission);
+      if (bm) { setMission(bm); setSyncStatus("live"); setLastSync(new Date()); }
+
+      const bq = bR(BK.queued);
+      if (bq) setQueued(bq);
+
+      const ba = bR(BK.alerts);
+      if (ba) {
+        setAlerts(prev => {
+          const ids   = new Set(prev.map(a => a.id));
+          const fresh = ba.filter(a => !ids.has(a.id));
+          return fresh.length > 0 ? [...fresh, ...prev] : prev;
+        });
+      }
+
+      const bc = bR(BK.custody);
+      if (bc) setCustody(bc);
+
+      const bms = bR(BK.messages);
+      if (bms && bms.length > messages.length) setMessages(bms);
+    }, 500);
+    return () => clearInterval(poll);
+  }, [messages.length]);
+
+  const handleAssign = useCallback((req, ac, pod) => {
+    const now  = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+    const upd  = queued.map(q => q.id===req.id ? { ...q, status:"assigned", aircraft:ac, pod } : q);
+    setQueued(upd);
+    bW(BK.queued, upd);
+
+    const alert = { id:Date.now(), time:now, type:"success", mission:req.id, msg:`Dispatched — ${ac} / ${pod} → ${req.id}`, acked:false };
+    setAlerts(prev => [alert, ...prev]);
+    bW(BK.alerts, [alert, ...(bR(BK.alerts)||[])]);
+
+    const msg = { id:Date.now()+1, from:"ROC", text:`${req.id} assigned. ${ac} + ${pod} dispatched. Handler can proceed with scan-in.`, time:now, read:false };
+    const updMsgs = [...messages, msg];
+    setMessages(updMsgs);
+    bW(BK.messages, updMsgs);
+  }, [queued, messages]);
+
+  const ackAlert = useCallback(id => setAlerts(p => p.map(a => a.id===id ? { ...a, acked:true } : a)), []);
+  const ackAll   = useCallback(()  => setAlerts(p => p.map(a => ({ ...a, acked:true }))), []);
+
+  const sendMsg = useCallback(text => {
+    const now = new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+    const m   = { id:Date.now(), from:"ROC", text, time:now, read:false };
+    const upd = [...messages, m];
+    setMessages(upd);
+    bW(BK.messages, upd);
+  }, [messages]);
+
+  /* Derived */
+  const ph           = mission?.phase || "idle";
+  const phCfg        = PH[ph] || PH.idle;
+  const live         = ["in_transit","arriving","landing"].includes(ph);
+  const unacked      = alerts.filter(a => !a.acked).length;
+  const criticals    = alerts.filter(a => !a.acked && a.type==="critical").length;
+  const pending      = queued.filter(q => q.status==="queued").length;
+  const unreadMsgs   = messages.filter(m => m.from==="Handler" && !m.read).length;
+
+  const NAV = [
+    { key:"overview",  icon:"⊞",  label:"Overview",  badge:null          },
+    { key:"missions",  icon:"✈️", label:"Missions",  badge:null          },
+    { key:"dispatch",  icon:"📋",  label:"Dispatch",  badge:pending||null },
+    { key:"alerts",    icon:"🔔",  label:"Alerts",    badge:unacked||null },
+    { key:"comms",     icon:"💬",  label:"Comms",     badge:unreadMsgs||null },
+    { key:"custody",   icon:"🔐",  label:"Custody",   badge:null          },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Outfit',sans-serif", display:"flex", flexDirection:"column" }}>
+      <style>{`
+        ${GF}
+        * { box-sizing:border-box; margin:0; padding:0; }
+        @keyframes ping { 75%,100%{ transform:scale(2.2); opacity:0; } }
+        @keyframes spin { to{ transform:rotate(360deg); } }
+        ::-webkit-scrollbar { width:4px; height:4px; }
+        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.07); border-radius:99px; }
+        select option { background:#0b1020; color:#e2e8f0; }
+        textarea::placeholder, input::placeholder { color:#1a2540; }
+        button:active { opacity:.85; }
+      `}</style>
+
+      {/* ── TOP HEADER ─────────────────────────────────────────── */}
+      <header style={{ height:52, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${T.border}`, background:T.sidebar, flexShrink:0, zIndex:10 }}>
+        {/* Left: logo + title */}
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+            <div style={{ width:28, height:28, borderRadius:8, background:"linear-gradient(135deg,#f97316,#dc5a0c)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:800, color:T.text, letterSpacing:"-.02em" }}>Atlas ROC</div>
+              <div style={{ fontSize:8, color:T.faint, letterSpacing:".1em", textTransform:"uppercase" }}>Remote Operations Center</div>
+            </div>
+          </div>
+
+          <div style={{ width:1, height:20, background:T.border }}/>
+
+          {/* Phase indicator */}
+          <div style={{ display:"flex", alignItems:"center", gap:7, padding:"4px 12px", background:T.card, borderRadius:99, border:`1px solid ${phCfg.color}20` }}>
+            <Dot color={phCfg.color} pulse={live} size={6}/>
+            <span style={{ fontSize:10, fontWeight:700, color:phCfg.color }}>{phCfg.short}</span>
+            {mission?.id && <>
+              <span style={{ color:T.faint, fontSize:10 }}>·</span>
+              <Mono color={T.sub} size={10}>{mission.id}</Mono>
+            </>}
+          </div>
+        </div>
+
+        {/* Center: live KPIs */}
+        <div style={{ display:"flex", gap:20, alignItems:"center" }}>
+          {[
+            { l:"Mission",  v:ph==="idle"?"IDLE":mission?.id||"—",   c:ph==="idle"?T.sub:T.sky  },
+            { l:"Progress", v:`${Math.round(mission?.progress||0)}%`, c:T.sky   },
+            { l:"Altitude", v:live?`${Math.round(mission?.alt||0).toLocaleString()} ft`:"—", c:T.sky },
+            { l:"Speed",    v:live?`${Math.round(mission?.speed||0)} kts`:"—", c:T.sky },
+            { l:"Temp",     v:`${(mission?.temp||0).toFixed(1)}°C`,   c:mission?.tempOk?T.green:T.red },
+            { l:"Pending",  v:pending,  c:pending>0?T.orange:T.sub },
+            { l:"Alerts",   v:unacked,  c:unacked>0?T.red:T.sub   },
+          ].map(({ l,v,c }) => (
+            <div key={l} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+              <div style={{ fontSize:8, color:T.faint, textTransform:"uppercase", letterSpacing:".1em" }}>{l}</div>
+              <Mono color={c} size={11}>{v}</Mono>
+            </div>
+          ))}
+        </div>
+
+        {/* Right: sync + clock */}
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <Dot color={syncStatus==="live"?T.green:T.orange} pulse={syncStatus==="live"} size={5}/>
+            <span style={{ fontSize:9, color:syncStatus==="live"?T.green:T.orange, fontWeight:700 }}>
+              {syncStatus==="live"
+                ? `SYNCED ${lastSync?.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit"})||""}`
+                : "WAITING FOR MOBILE"
+              }
+            </span>
+          </div>
+          <div style={{ width:1, height:16, background:T.border }}/>
+          <Clock/>
+        </div>
+      </header>
+
+      {/* ── CRITICAL ALERT BANNER ──────────────────────────────── */}
+      {criticals > 0 && (
+        <div style={{ padding:"9px 24px", background:`${T.red}0c`, borderBottom:`1px solid ${T.red}20`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <Dot color={T.red} pulse size={7}/>
+            <span style={{ fontSize:12, fontWeight:700, color:T.red }}>
+              {criticals} CRITICAL ALERT{criticals>1?"S":""} — Immediate action required
+            </span>
+          </div>
+          <button onClick={() => setTab("alerts")} style={{ padding:"5px 14px", borderRadius:8, border:`1px solid ${T.red}35`, background:`${T.red}12`, color:T.red, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+            View Alerts →
+          </button>
+        </div>
+      )}
+
+      {/* ── BODY: sidebar + content ─────────────────────────────── */}
+      <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+
+        {/* Sidebar nav */}
+        <aside style={{ width:180, background:T.sidebar, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", padding:"16px 10px", flexShrink:0 }}>
+          {NAV.map(({ key, icon, label, badge }) => {
+            const isActive = tab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10, border:"none", background:isActive?`rgba(56,189,248,0.08)`:"transparent", cursor:"pointer", marginBottom:4, position:"relative", textAlign:"left", width:"100%" }}
+              >
+                <span style={{ fontSize:16, filter:isActive?"none":"grayscale(1) opacity(.4)" }}>{icon}</span>
+                <span style={{ fontSize:12, fontWeight:isActive?700:400, color:isActive?T.text:T.sub, fontFamily:"'Outfit',sans-serif" }}>{label}</span>
+                {badge > 0 && (
+                  <div style={{ position:"absolute", top:6, right:10, width:17, height:17, borderRadius:"50%", background:key==="alerts"?T.red:T.orange, fontSize:9, color:"#fff", fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    {badge > 9 ? "9+" : badge}
+                  </div>
+                )}
+                {isActive && <div style={{ position:"absolute", left:0, top:6, bottom:6, width:3, borderRadius:"0 2px 2px 0", background:T.sky }}/>}
+              </button>
+            );
+          })}
+
+          {/* Sidebar footer */}
+          <div style={{ marginTop:"auto", padding:"12px", borderTop:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:9, color:T.faint, lineHeight:1.7 }}>
+              Lakeland, FL<br/>
+              atlas-response.com
+            </div>
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <main style={{ flex:1, overflowY:"auto", padding:"24px", scrollbarWidth:"thin", scrollbarColor:"rgba(255,255,255,0.07) transparent" }}>
+          {/* Page title */}
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:20, fontWeight:800, color:T.text, letterSpacing:"-.02em" }}>
+              {NAV.find(n=>n.key===tab)?.label}
+            </div>
+            <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>
+              {{
+                overview: "Live operations summary",
+                missions: "Active mission telemetry and flight data",
+                dispatch: "Customer request queue and aircraft assignment",
+                alerts:   "System alerts and anomaly reports",
+                comms:    "Handler ↔ ROC messaging",
+                custody:  "Chain of custody event log",
+              }[tab]}
+            </div>
+          </div>
+
+          {tab==="overview" && (
+            <OverviewTab
+              mission={mission}
+              queued={queued}
+              alerts={alerts}
+              onDispatchTab={() => setTab("dispatch")}
+              onAlertsTab={() => setTab("alerts")}
+              onMissionsTab={() => setTab("missions")}
+            />
+          )}
+          {tab==="missions"  && <MissionsTab mission={mission}/>}
+          {tab==="dispatch"  && <DispatchTab queued={queued} onAssign={handleAssign}/>}
+          {tab==="alerts"    && <AlertsTab alerts={alerts} onAck={ackAlert} onAckAll={ackAll}/>}
+          {tab==="comms"     && <CommsTab messages={messages} onSend={sendMsg}/>}
+          {tab==="custody"   && <CustodyTab custody={custody}/>}
+        </main>
+      </div>
+
+      {/* Status bar */}
+      <div style={{ height:28, padding:"0 24px", borderTop:`1px solid ${T.border}`, background:T.sidebar, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+        <div style={{ fontSize:9, color:T.faint }}>
+          Open <strong style={{ color:T.sub }}>atlas_mobile_v3.jsx</strong> in another tab · Bridge: atl_mission / atl_queued / atl_alerts / atl_messages / atl_custody
+        </div>
+        <div style={{ fontSize:9, color:T.faint }}>Atlas Response, Inc. · v4.0</div>
+      </div>
+    </div>
+  );
+}
